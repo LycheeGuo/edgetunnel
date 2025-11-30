@@ -1,8 +1,11 @@
 import { connect } from "cloudflare:sockets";
-// [修改1] 在这里添加了 '学术反代IP' 变量
-let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = 'http://208.180.238.40:3390';
+
+// [修改] 默认值设为空，完全依赖后台 ACADEMIC_PROXY 变量
+// [修改] 增加了对多 IP 负载均衡的支持
+let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
+
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
 export default {
     async fetch(request, env, ctx) {
@@ -16,14 +19,25 @@ export default {
         const envUUID = env.UUID || env.uuid;
         const userID = (envUUID && uuidRegex.test(envUUID)) ? envUUID.toLowerCase() : [userIDMD5.slice(0, 8), userIDMD5.slice(8, 12), '4' + userIDMD5.slice(13, 16), userIDMD5.slice(16, 20), userIDMD5.slice(20)].join('-');
         const host = env.HOST ? env.HOST.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split(':')[0] : url.hostname;
+        
+        // 处理普通反代IP
         if (env.PROXYIP) {
             const proxyIPs = await 整理成数组(env.PROXYIP);
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [修改2] 读取 ACADEMIC_PROXY 环境变量（如果有设置，则覆盖默认值）
+        // [核心修改] 读取 ACADEMIC_PROXY 变量，支持多IP随机选择
         if (env.ACADEMIC_PROXY) {
-            学术反代IP = env.ACADEMIC_PROXY;
+            try {
+                // 使用内置函数将逗号分隔的字符串转为数组
+                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
+                if (academicIPs.length > 0) {
+                    // 随机选择一个 IP (实现负载均衡)
+                    学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
+                }
+            } catch (e) {
+                console.log('解析 ACADEMIC_PROXY 失败:', e);
+            }
         }
 
         const 访问IP = request.headers.get('X-Real-IP') || request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || request.headers.get('True-Client-IP') || request.headers.get('Fly-Client-IP') || request.headers.get('X-Appengine-Remote-Addr') || request.headers.get('X-Forwarded-For') || request.headers.get('X-Real-IP') || request.headers.get('X-Cluster-Client-IP') || request.cf?.clientTcpRtt || '未知IP';
@@ -484,7 +498,8 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // [修改3] 谷歌学术自动分流逻辑
+    // 谷歌学术自动分流逻辑
+    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
             // 强制启用 HTTP 代理模式
@@ -492,6 +507,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
             启用SOCKS5全局反代 = true;
             
             // 解析代理 IP 和端口
+            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
             const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
             const parts = proxyStr.split(':');
             
@@ -502,6 +518,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
                 username: '', 
                 password: ''
             };
+            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
