@@ -1,5 +1,6 @@
-﻿import { connect } from "cloudflare:sockets";
-let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
+import { connect } from "cloudflare:sockets";
+// [修改1] 在这里添加了 '学术反代IP' 变量
+let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = 'http://208.180.238.40:3390';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
@@ -19,6 +20,12 @@ export default {
             const proxyIPs = await 整理成数组(env.PROXYIP);
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
+        
+        // [修改2] 读取 ACADEMIC_PROXY 环境变量（如果有设置，则覆盖默认值）
+        if (env.ACADEMIC_PROXY) {
+            学术反代IP = env.ACADEMIC_PROXY;
+        }
+
         const 访问IP = request.headers.get('X-Real-IP') || request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || request.headers.get('True-Client-IP') || request.headers.get('Fly-Client-IP') || request.headers.get('X-Appengine-Remote-Addr') || request.headers.get('X-Forwarded-For') || request.headers.get('X-Real-IP') || request.headers.get('X-Cluster-Client-IP') || request.cf?.clientTcpRtt || '未知IP';
         if (env.GO2SOCKS5) SOCKS5白名单 = await 整理成数组(env.GO2SOCKS5);
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -477,6 +484,29 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
+    // [修改3] 谷歌学术自动分流逻辑
+    if (host.includes('scholar.google.com') && 学术反代IP) {
+        try {
+            // 强制启用 HTTP 代理模式
+            启用SOCKS5反代 = 'http';
+            启用SOCKS5全局反代 = true;
+            
+            // 解析代理 IP 和端口
+            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
+            const parts = proxyStr.split(':');
+            
+            // 覆盖全局代理配置
+            parsedSocks5Address = {
+                hostname: parts[0],
+                port: parseInt(parts[1]) || 80,
+                username: '', 
+                password: ''
+            };
+        } catch (e) {
+            console.log('[学术分流] 代理解析失败:', e);
+        }
+    }
+
     console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
@@ -1372,11 +1402,7 @@ async function html1101(host, 访问IP) {
     const 随机字符串 = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2, '0')).join('');
 
     return `<!DOCTYPE html>
-<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
-<head>
+<html class="no-js" lang="en-US"> <head>
 <title>Worker threw exception | ${host} | Cloudflare</title>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -1384,11 +1410,9 @@ async function html1101(host, 访问IP) {
 <meta name="robots" content="noindex, nofollow" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
-<!--[if lt IE 9]><link rel="stylesheet" id='cf_styles-ie-css' href="/cdn-cgi/styles/cf.errors.ie.css" /><![endif]-->
 <style>body{margin:0;padding:0}</style>
 
 
-<!--[if gte IE 10]><!-->
 <script>
   if (!navigator.cookieEnabled) {
     window.addEventListener('DOMContentLoaded', function () {
@@ -1397,8 +1421,6 @@ async function html1101(host, 访问IP) {
     })
   }
 </script>
-<!--<![endif]-->
-
 </head>
 <body>
     <div id="cf-wrapper">
@@ -1411,11 +1433,7 @@ async function html1101(host, 访问IP) {
                     <small class="heading-ray-id">Ray ID: ${随机字符串} &bull; ${格式化时间戳} UTC</small>
                 </h1>
                 <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
-            </div><!-- /.header -->
-    
-            <section></section><!-- spacer -->
-    
-            <div class="cf-section cf-wrapper">
+            </div><section></section><div class="cf-section cf-wrapper">
                 <div class="cf-columns two">
                     <div class="cf-column">
                         <h2 data-translate="what_happened">What happened?</h2>
@@ -1428,9 +1446,7 @@ async function html1101(host, 访问IP) {
                     </div>
                     
                 </div>
-            </div><!-- /.section -->
-    
-            <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
+            </div><div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
     <p class="text-13">
       <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold"> ${随机字符串}</strong></span>
       <span class="cf-footer-separator sm:hidden">&bull;</span>
@@ -1444,12 +1460,7 @@ async function html1101(host, 访问IP) {
       
     </p>
     <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
-  </div><!-- /.error-footer -->
-
-        </div><!-- /#cf-error-details -->
-    </div><!-- /#cf-wrapper -->
-
-     <script>
+  </div></div></div><script>
     window._cf_translation = {};
     
     
