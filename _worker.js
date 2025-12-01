@@ -329,19 +329,6 @@ export default {
             } else if (访问路径 === 'locations') return fetch(new Request('https://speed.cloudflare.com/locations'));
         } else if (管理员密码) {// ws代理
             await 反代参数获取(request);
-            
-            // [新增功能] 如果URL参数没传socks5，且环境变量配置了SOCKS5，则使用环境变量的配置
-            if (!我的SOCKS5账号 && SOCKS5ProxyIP) {
-                try {
-                    我的SOCKS5账号 = SOCKS5ProxyIP;
-                    parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
-                    启用SOCKS5反代 = 'socks5';
-                    启用SOCKS5全局反代 = true; 
-                } catch (e) {
-                    console.log('环境变量SOCKS5应用失败:', e);
-                }
-            }
-
             return await 处理WS请求(request, userID);
         }
 
@@ -515,27 +502,42 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
-    if (host.includes('scholar.google.com') && 学术反代IP) {
+    // [修改] 谷歌学术自动分流逻辑 (支持 SOCKS5/HTTP 混用 + 负载均衡)
+    // 触发条件：访问 scholar.google.com 且 (环境变量 SOCKS5 或 ACADEMIC_PROXY 有值)
+    if (host.includes('scholar.google.com') && (SOCKS5ProxyIP || 学术反代IP)) {
         try {
-            // 强制启用 HTTP 代理模式
-            启用SOCKS5反代 = 'http';
-            启用SOCKS5全局反代 = true;
+            // 优先使用 SOCKS5 变量 (它已经在 fetch 头部被随机选中了，实现了负载均衡)
+            // 如果 SOCKS5 变量没填，则回退到 ACADEMIC_PROXY
+            let 选中的代理 = SOCKS5ProxyIP || 学术反代IP;
             
-            // 解析代理 IP 和端口
-            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
-            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
-            const parts = proxyStr.split(':');
-            
-            // 覆盖全局代理配置
-            parsedSocks5Address = {
-                hostname: parts[0],
-                port: parseInt(parts[1]) || 80,
-                username: '', 
-                password: ''
-            };
-            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
+            if (选中的代理) {
+                let 协议类型 = 'socks5'; // 默认协议
+                let 待解析账号 = 选中的代理;
+
+                // 1. 自动识别协议前缀
+                if (选中的代理.toLowerCase().startsWith('http://') || 选中的代理.toLowerCase().startsWith('https://')) {
+                    协议类型 = 'http';
+                    待解析账号 = 选中的代理.replace(/^https?:\/\//i, '');
+                } else if (选中的代理.toLowerCase().startsWith('socks5://')) {
+                    协议类型 = 'socks5';
+                    待解析账号 = 选中的代理.replace(/^socks5:\/\//i, '');
+                } else {
+                    // 2. 如果没有前缀，根据来源判断默认协议
+                    // 如果来自 ACADEMIC_PROXY (旧逻辑)，通常默认为 HTTP
+                    // 如果来自 SOCKS5 变量，默认为 SOCKS5
+                    if (!SOCKS5ProxyIP && 学术反代IP) {
+                        协议类型 = 'http'; 
+                    }
+                }
+
+                // 3. 应用代理配置
+                parsedSocks5Address = await 获取SOCKS5账号(待解析账号);
+                启用SOCKS5反代 = 协议类型;
+                启用SOCKS5全局反代 = true; // 仅针对当前连接启用
+                我的SOCKS5账号 = 待解析账号; // 更新日志记录信息
+                
+                // console.log(`[学术分流] 启用 ${协议类型.toUpperCase()} 代理: ${待解析账号}`);
+            }
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
