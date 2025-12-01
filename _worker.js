@@ -1,7 +1,8 @@
 import { connect } from "cloudflare:sockets";
 
 // [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
-let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
+// [修改] 增加了 SOCKS5ProxyIP 变量初始化
+let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '', SOCKS5ProxyIP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
 
@@ -39,6 +40,18 @@ export default {
                 }
             } catch (e) {
                 console.log('解析 ACADEMIC_PROXY 失败:', e);
+            }
+        }
+
+        // [新增] 读取 SOCKS5 变量 (自定义添加)
+        if (env.SOCKS5) {
+            try {
+                const socks5IPs = await 整理成数组(env.SOCKS5);
+                if (socks5IPs.length > 0) {
+                    SOCKS5ProxyIP = socks5IPs[Math.floor(Math.random() * socks5IPs.length)];
+                }
+            } catch (e) {
+                console.log('解析 SOCKS5 变量失败:', e);
             }
         }
 
@@ -316,6 +329,19 @@ export default {
             } else if (访问路径 === 'locations') return fetch(new Request('https://speed.cloudflare.com/locations'));
         } else if (管理员密码) {// ws代理
             await 反代参数获取(request);
+            
+            // [新增功能] 如果URL参数没传socks5，且环境变量配置了SOCKS5，则使用环境变量的配置
+            if (!我的SOCKS5账号 && SOCKS5ProxyIP) {
+                try {
+                    我的SOCKS5账号 = SOCKS5ProxyIP;
+                    parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
+                    启用SOCKS5反代 = 'socks5';
+                    启用SOCKS5全局反代 = true; 
+                } catch (e) {
+                    console.log('环境变量SOCKS5应用失败:', e);
+                }
+            }
+
             return await 处理WS请求(request, userID);
         }
 
