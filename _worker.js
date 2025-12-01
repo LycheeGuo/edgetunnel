@@ -493,23 +493,25 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // 强制启用 HTTP 代理模式
-            启用SOCKS5反代 = 'http';
+            // [新增逻辑] 自动判断协议并解析账号密码
+            let proxyProtocol = 'http';
+            let proxyAddress = 学术反代IP;
+            if (proxyAddress.toLowerCase().startsWith('socks5://')) {
+                proxyProtocol = 'socks5';
+                proxyAddress = proxyAddress.substring(9);
+            } else if (proxyAddress.toLowerCase().startsWith('http://')) {
+                 proxyAddress = proxyAddress.substring(7);
+            } else if (proxyAddress.toLowerCase().startsWith('https://')) {
+                 proxyAddress = proxyAddress.substring(8);
+            }
+            
+            // 使用脚本内置的解析函数 (支持 user:pass@ip:port)
+            parsedSocks5Address = await 获取SOCKS5账号(proxyAddress);
+            
+            启用SOCKS5反代 = proxyProtocol;
             启用SOCKS5全局反代 = true;
+            我的SOCKS5账号 = proxyAddress; // 用于日志记录
             
-            // 解析代理 IP 和端口
-            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
-            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
-            const parts = proxyStr.split(':');
-            
-            // 覆盖全局代理配置
-            parsedSocks5Address = {
-                hostname: parts[0],
-                port: parseInt(parts[1]) || 80,
-                username: '', 
-                password: ''
-            };
-            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
