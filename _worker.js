@@ -264,12 +264,10 @@ export default {
                                     节点地址 = match[1];  
                                     节点端口 = match[2] || "443";  
                                     
-                                    // [修改] 随机国旗 + 零宽空格，确保不重名不显示数字
+                                    // [修改] 纯国旗名称，去掉了数字和特殊空格
+                                    // 如果客户端显示重复节点，那是客户端的行为（通常会自动加序号）
                                     const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
-                                    // 核心技巧：通过 '​' (零宽空格) 的数量来区分不同节点
-                                    // 这样每个节点名字肉眼看都一样，但字符串长度不同，不会被客户端去重
-                                    const zeroWidthSpaces = '\u200B'.repeat(index + 1);
-                                    节点备注 = `${随机国旗}${zeroWidthSpaces}`; 
+                                    节点备注 = 随机国旗; 
 
                                 } else {
                                     return null;
@@ -500,6 +498,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
             启用SOCKS5全局反代 = true;
             
             // 解析代理 IP 和端口
+            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
             const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
             const parts = proxyStr.split(':');
             
@@ -832,7 +831,7 @@ function 掩码敏感信息(文本, 前缀长度 = 3, 后缀长度 = 2) {
     if (文本.length <= 前缀长度 + 后缀长度) return 文本; // 如果长度太短，直接返回
 
     const 前缀 = 文本.slice(0, 前缀长度);
-    const 后缀 = 文本.slice(-后缀长度);
+    const 后缀 =文本.slice(-后缀长度);
     const 星号数量 = 文本.length - 前缀长度 - 后缀长度;
 
     return `${前缀}${'*'.repeat(星号数量)}${后缀}`;
@@ -1476,3 +1475,4 @@ async function html1101(host, 访问IP) {
   </script> 
 </body>
 </html>`;
+}
