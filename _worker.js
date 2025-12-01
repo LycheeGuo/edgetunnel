@@ -489,32 +489,32 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
+    // 关键修改：使用局部变量，防止全局变量污染
+    let 局部_启用SOCKS5反代 = 启用SOCKS5反代;
+    let 局部_启用SOCKS5全局反代 = 启用SOCKS5全局反代;
+    let 局部_parsedSocks5Address = parsedSocks5Address;
+
     // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // [新增] SOCKS5 节点解析逻辑
-            // 判断是否以 socks 开头 (不区分大小写)，如果是则启用 socks5 模式，否则默认 http
             if (学术反代IP.toLowerCase().startsWith('socks')) {
-                启用SOCKS5反代 = 'socks5';
+                局部_启用SOCKS5反代 = 'socks5';
             } else {
-                启用SOCKS5反代 = 'http';
+                局部_启用SOCKS5反代 = 'http';
             }
-            启用SOCKS5全局反代 = true;
+            局部_启用SOCKS5全局反代 = true;
             
-            // 移除协议前缀，准备进行解析 (兼容 http://, https://, socks5://, socks:// 或无前缀)
+            // 重新解析 SOCKS5 账号，仅更新局部变量
             const proxyStr = 学术反代IP.replace(/^(socks5?:\/\/|http:\/\/|https:\/\/)/i, '');
-            
-            // 使用脚本自带的解析函数来处理账号密码和端口 (支持 user:pass@host:port)
-            parsedSocks5Address = await 获取SOCKS5账号(proxyStr);
+            局部_parsedSocks5Address = await 获取SOCKS5账号(proxyStr);
 
-            // console.log(`[学术分流] 选中代理: ${学术反代IP} (解析后: ${JSON.stringify(parsedSocks5Address)})`);
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
     }
 
-    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 局部_启用SOCKS5反代, 全局代理: 局部_启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
         const writer = remoteSock.writable.getWriter();
@@ -522,12 +522,14 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         writer.releaseLock();
         return remoteSock;
     }
+
     async function connecttoPry() {
         let newSocket;
-        if (启用SOCKS5反代 === 'socks5') {
-            newSocket = await socks5Connect(host, portNum, rawData);
-        } else if (启用SOCKS5反代 === 'http' || 启用SOCKS5反代 === 'https') {
-            newSocket = await httpConnect(host, portNum, rawData);
+        // 关键修改：传递 局部_parsedSocks5Address 给连接函数
+        if (局部_启用SOCKS5反代 === 'socks5') {
+            newSocket = await socks5Connect(host, portNum, rawData, 局部_parsedSocks5Address);
+        } else if (局部_启用SOCKS5反代 === 'http' || 局部_启用SOCKS5反代 === 'https') {
+            newSocket = await httpConnect(host, portNum, rawData, 局部_parsedSocks5Address);
         } else {
             try {
                 const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
@@ -539,7 +541,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
+    if (局部_启用SOCKS5反代 && 局部_启用SOCKS5全局反代) {
         try {
             await connecttoPry();
         } catch (err) {
@@ -675,8 +677,9 @@ function base64ToArray(b64Str) {
     }
 }
 ////////////////////////////////SOCKS5/HTTP函数///////////////////////////////////////////////
-async function socks5Connect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+// 关键修改：增加 proxyConfig 参数，不再依赖全局变量
+async function socks5Connect(targetHost, targetPort, initialData, proxyConfig) {
+    const { username, password, hostname, port } = proxyConfig;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
@@ -711,8 +714,9 @@ async function socks5Connect(targetHost, targetPort, initialData) {
     }
 }
 
-async function httpConnect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+// 关键修改：增加 proxyConfig 参数，不再依赖全局变量
+async function httpConnect(targetHost, targetPort, initialData, proxyConfig) {
+    const { username, password, hostname, port } = proxyConfig;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
@@ -1192,7 +1196,7 @@ async function 获取SOCKS5账号(address) {
         address = `${userPassword}@${address.substring(lastAtIndex + 1)}`;
     }
     const atIndex = address.lastIndexOf("@");
-    const [hostPart, authPart] = atIndex === -1 ? [address, undefined] : [address.substring(atIndex + 1), address.substring(0, atIndex)];
+    const [hostPart, authPart] = atIndex === -1 ? [address, undefined] : [address.substring(0, atIndex)];
 
     // 解析认证
     let username, password;
@@ -1351,11 +1355,15 @@ async function 解析地址端口(proxyIP) {
 async function SOCKS5可用性验证(代理协议 = 'socks5', 代理参数) {
     const startTime = Date.now();
     try { parsedSocks5Address = await 获取SOCKS5账号(代理参数); } catch (err) { return { success: false, error: err.message, proxy: 代理协议 + "://" + 代理参数, responseTime: Date.now() - startTime }; }
-    const { username, password, hostname, port } = parsedSocks5Address;
+    
+    // 关键修改：验证时也使用局部解析的配置，不依赖全局变量
+    const localProxyConfig = parsedSocks5Address; 
+    const { username, password, hostname, port } = localProxyConfig;
     const 完整代理参数 = username && password ? `${username}:${password}@${hostname}:${port}` : `${hostname}:${port}`;
     try {
         const initialData = new Uint8Array(0);
-        const tcpSocket = 代理协议 == 'socks5' ? await socks5Connect('check.socks5.090227.xyz', 80, initialData) : await httpConnect('check.socks5.090227.xyz', 80, initialData);
+        // 关键修改：传入 localProxyConfig
+        const tcpSocket = 代理协议 == 'socks5' ? await socks5Connect('check.socks5.090227.xyz', 80, initialData, localProxyConfig) : await httpConnect('check.socks5.090227.xyz', 80, initialData, localProxyConfig);
         if (!tcpSocket) return { success: false, error: '无法连接到代理服务器', proxy: 代理协议 + "://" + 完整代理参数, responseTime: Date.now() - startTime };
         try {
             const writer = tcpSocket.writable.getWriter(), encoder = new TextEncoder();
