@@ -1,14 +1,11 @@
 import { connect } from "cloudflare:sockets";
 
-// [配置] 全局变量定义
-let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
-// [新增] 专门存储学术代理列表的数组，用于负载均衡和故障切换
-let 学术反代IP列表 = []; 
-
+// [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
+let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
 
-// [新增] 自定义国旗列表 (用于节点名字，无数字)
+// [新增] 自定义国旗列表 (你可以自己增减)
 const 国家国旗列表 = [
     '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG', '🇹🇼 TW', '🇬🇧 UK', '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
 ];
@@ -33,11 +30,13 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [核心修改] 读取 ACADEMIC_PROXY 变量，存入列表
+        // 读取 ACADEMIC_PROXY 变量
         if (env.ACADEMIC_PROXY) {
             try {
-                // 将逗号分隔的字符串转为数组，准备给负载均衡使用
-                学术反代IP列表 = await 整理成数组(env.ACADEMIC_PROXY);
+                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
+                if (academicIPs.length > 0) {
+                    学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
+                }
             } catch (e) {
                 console.log('解析 ACADEMIC_PROXY 失败:', e);
             }
@@ -130,35 +129,58 @@ export default {
                             await env.KV.put('config.json', JSON.stringify(newConfig, null, 2));
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-                        } catch (error) { return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); }
+                        } catch (error) {
+                            return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                        }
                     } else if (访问路径 === 'admin/cf.json') {
                         try {
                             const newConfig = await request.json();
                             const CF_JSON = { Email: null, GlobalAPIKey: null, AccountID: null, APIToken: null };
                             if (!newConfig.init || newConfig.init !== true) {
-                                if (newConfig.Email && newConfig.GlobalAPIKey) { CF_JSON.Email = newConfig.Email; CF_JSON.GlobalAPIKey = newConfig.GlobalAPIKey; CF_JSON.AccountID = null; CF_JSON.APIToken = null; }
-                                else if (newConfig.AccountID && newConfig.APIToken) { CF_JSON.Email = null; CF_JSON.GlobalAPIKey = null; CF_JSON.AccountID = newConfig.AccountID; CF_JSON.APIToken = newConfig.APIToken; }
-                                else { return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); }
+                                if (newConfig.Email && newConfig.GlobalAPIKey) {
+                                    CF_JSON.Email = newConfig.Email;
+                                    CF_JSON.GlobalAPIKey = newConfig.GlobalAPIKey;
+                                    CF_JSON.AccountID = null;
+                                    CF_JSON.APIToken = null;
+                                } else if (newConfig.AccountID && newConfig.APIToken) {
+                                    CF_JSON.Email = null;
+                                    CF_JSON.GlobalAPIKey = null;
+                                    CF_JSON.AccountID = newConfig.AccountID;
+                                    CF_JSON.APIToken = newConfig.APIToken;
+                                } else {
+                                    return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                                }
                             }
                             await env.KV.put('cf.json', JSON.stringify(CF_JSON, null, 2));
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-                        } catch (error) { return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); }
+                        } catch (error) {
+                            return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                        }
                     } else if (访问路径 === 'admin/tg.json') {
                         try {
                             const newConfig = await request.json();
-                            if (newConfig.init && newConfig.init === true) { const TG_JSON = { BotToken: null, ChatID: null }; await env.KV.put('tg.json', JSON.stringify(TG_JSON, null, 2)); }
-                            else { if (!newConfig.BotToken || !newConfig.ChatID) return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); await env.KV.put('tg.json', JSON.stringify(newConfig, null, 2)); }
+                            if (newConfig.init && newConfig.init === true) {
+                                const TG_JSON = { BotToken: null, ChatID: null };
+                                await env.KV.put('tg.json', JSON.stringify(TG_JSON, null, 2));
+                            } else {
+                                if (!newConfig.BotToken || !newConfig.ChatID) return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                                await env.KV.put('tg.json', JSON.stringify(newConfig, null, 2));
+                            }
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-                        } catch (error) { return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); }
+                        } catch (error) {
+                            return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                        }
                     } else if (区分大小写访问路径 === 'admin/ADD.txt') {
                         try {
                             const customIPs = await request.text();
                             await env.KV.put('ADD.txt', customIPs);
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Custom_IPs', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '自定义IP已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-                        } catch (error) { return new Response(JSON.stringify({ error: '保存自定义IP失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } }); }
+                        } catch (error) {
+                            return new Response(JSON.stringify({ error: '保存自定义IP失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+                        }
                     } else return new Response(JSON.stringify({ error: '不支持的POST请求路径' }), { status: 404, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                 } else if (访问路径 === 'admin/config.json') {
                     return new Response(JSON.stringify(config_JSON, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -172,7 +194,7 @@ export default {
 
                 ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
                 return fetch(Pages静态页面 + '/admin');
-            } else if (访问路径 === 'logout') {//清除cookie并跳转到登录页面
+            } else if (访问路径 === 'logout') {
                 const 响应 = new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
                 响应.headers.set('Set-Cookie', 'auth=; Path=/; Max-Age=0; HttpOnly');
                 return 响应;
@@ -242,11 +264,10 @@ export default {
                                     节点地址 = match[1];  
                                     节点端口 = match[2] || "443";  
                                     
-                                    // [修改] 纯国旗名称
+                                    // [修改] 纯国旗名称，去掉了数字和特殊空格
+                                    // 如果客户端显示重复节点，那是客户端的行为（通常会自动加序号）
                                     const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
-                                    // 使用零宽空格区分不同节点
-                                    const zeroWidthSpaces = '\u200B'.repeat(index + 1);
-                                    节点备注 = `${随机国旗}${zeroWidthSpaces}`; 
+                                    节点备注 = 随机国旗; 
 
                                 } else {
                                     return null;
@@ -468,49 +489,41 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // ---------------------------------------------------------
-    // [核心修改] 学术代理负载均衡 + 故障切换逻辑 (High Availability)
-    // ---------------------------------------------------------
-    async function connecttoPry() {
-        // 如果是访问谷歌学术，且配置了学术代理IP列表
-        if (host.includes('scholar.google.com') && 学术反代IP列表.length > 0) {
-            // 1. 负载均衡：随机打乱 IP 列表顺序，每次请求用不同的随机顺序尝试
-            const 随机列表 = [...学术反代IP列表].sort(() => 0.5 - Math.random());
+    // 谷歌学术自动分流逻辑
+    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
+    if (host.includes('scholar.google.com') && 学术反代IP) {
+        try {
+            // 强制启用 HTTP 代理模式
+            启用SOCKS5反代 = 'http';
+            启用SOCKS5全局反代 = true;
             
-            // 2. 故障切换：循环尝试列表中的每一个 IP
-            for (let proxyStr of 随机列表) {
-                try {
-                    // 解析当前尝试的 IP (去除 http:// 前缀，分离端口)
-                    const cleanProxy = proxyStr.replace(/^https?:\/\//, '');
-                    const parts = cleanProxy.split(':');
-                    
-                    // 设置全局代理配置供 httpConnect 使用
-                    parsedSocks5Address = {
-                        hostname: parts[0],
-                        port: parseInt(parts[1]) || 80,
-                        username: '', 
-                        password: ''
-                    };
-                    
-                    // 尝试连接
-                    const newSocket = await httpConnect(host, portNum, rawData);
-                    
-                    // 如果连接成功（newSocket 不为空且未报错）
-                    if (newSocket) {
-                        remoteConnWrapper.socket = newSocket;
-                        newSocket.closed.catch(() => {}).finally(() => closeSocketQuietly(ws));
-                        connectStreams(newSocket, ws, respHeader, null);
-                        return; // 成功！直接退出函数，不再尝试后续 IP
-                    }
-                } catch (e) {
-                    // 当前 IP 连接失败，静默捕获错误，循环会自动尝试下一个 IP
-                    // console.log(`IP ${proxyStr} 连接失败，自动切换下一个...`);
-                }
-            }
-            // 如果循环结束还没成功，说明所有学术 IP 都挂了，代码会继续向下执行“兜底逻辑”
-        } 
-        
-        // 兜底逻辑 / 普通流量逻辑
+            // 解析代理 IP 和端口
+            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
+            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
+            const parts = proxyStr.split(':');
+            
+            // 覆盖全局代理配置
+            parsedSocks5Address = {
+                hostname: parts[0],
+                port: parseInt(parts[1]) || 80,
+                username: '', 
+                password: ''
+            };
+            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
+        } catch (e) {
+            console.log('[学术分流] 代理解析失败:', e);
+        }
+    }
+
+    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    async function connectDirect(address, port, data) {
+        const remoteSock = connect({ hostname: address, port: port });
+        const writer = remoteSock.writable.getWriter();
+        await writer.write(data);
+        writer.releaseLock();
+        return remoteSock;
+    }
+    async function connecttoPry() {
         let newSocket;
         if (启用SOCKS5反代 === 'socks5') {
             newSocket = await socks5Connect(host, portNum, rawData);
@@ -525,15 +538,6 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         remoteConnWrapper.socket = newSocket;
         newSocket.closed.catch(() => { }).finally(() => closeSocketQuietly(ws));
         connectStreams(newSocket, ws, respHeader, null);
-    }
-
-    // 辅助函数：直连
-    async function connectDirect(address, port, data) {
-        const remoteSock = connect({ hostname: address, port: port });
-        const writer = remoteSock.writable.getWriter();
-        await writer.write(data);
-        writer.releaseLock();
-        return remoteSock;
     }
 
     if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
@@ -827,7 +831,7 @@ function 掩码敏感信息(文本, 前缀长度 = 3, 后缀长度 = 2) {
     if (文本.length <= 前缀长度 + 后缀长度) return 文本; // 如果长度太短，直接返回
 
     const 前缀 = 文本.slice(0, 前缀长度);
-    const 后缀 = 文本.slice(-后缀长度);
+    const 后缀 =文本.slice(-后缀长度);
     const 星号数量 = 文本.length - 前缀长度 - 后缀长度;
 
     return `${前缀}${'*'.repeat(星号数量)}${后缀}`;
