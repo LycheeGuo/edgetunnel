@@ -1,10 +1,14 @@
 import { connect } from "cloudflare:sockets";
 
-// [修改] 默认值设为空，完全依赖后台 ACADEMIC_PROXY 变量
-// [修改] 增加了对多 IP 负载均衡的支持
+// [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
+
+// [新增] 自定义国旗列表，用于随机生成节点名称
+const 国家国旗列表 = [
+    '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG', '🇹🇼 TW', '🇬🇧 UK', '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
+];
 
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
 export default {
@@ -26,13 +30,11 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [核心修改] 读取 ACADEMIC_PROXY 变量，支持多IP随机选择
+        // 读取 ACADEMIC_PROXY 变量，支持多IP随机选择
         if (env.ACADEMIC_PROXY) {
             try {
-                // 使用内置函数将逗号分隔的字符串转为数组
                 const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
                 if (academicIPs.length > 0) {
-                    // 随机选择一个 IP (实现负载均衡)
                     学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
                 }
             } catch (e) {
@@ -262,23 +264,23 @@ export default {
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
                             订阅内容 = 完整优选IP.map(原始地址 => {
-                                // 统一正则: 匹配 域名/IPv4/IPv6地址 + 可选端口 + 可选备注
-                                // 示例: 
-                                //   - 域名: hj.xmm1993.top:2096#备注 或 example.com
-                                //   - IPv4: 166.0.188.128:443#Los Angeles 或 166.0.188.128
-                                //   - IPv6: [2606:4700::]:443#CMCC 或 [2606:4700::]
+                                // 统一正则匹配
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
 
                                 let 节点地址, 节点端口 = "443", 节点备注;
 
                                 if (match) {
-                                    节点地址 = match[1];  // IP地址或域名(可能带方括号)
-                                    节点端口 = match[2] || "443";  // 端口,默认443
-                                    节点备注 = match[3] || 节点地址;  // 备注,默认为地址本身
+                                    节点地址 = match[1];  // IP地址
+                                    节点端口 = match[2] || "443";  // 端口
+                                    
+                                    // [修改] 强制使用自定义国旗名称
+                                    const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
+                                    // 生成一个随机3位数字，防止节点重名被客户端合并
+                                    const 随机ID = Math.floor(Math.random() * 900) + 100;
+                                    节点备注 = `${随机国旗} ${随机ID}`; 
+
                                 } else {
-                                    // 不规范的格式，跳过处理返回null
-                                    console.warn(`[订阅内容] 不规范的IP格式已忽略: ${原始地址}`);
                                     return null;
                                 }
                                 const 节点HOST = 随机替换通配符(host);
@@ -1484,4 +1486,3 @@ async function html1101(host, 访问IP) {
   </script> 
 </body>
 </html>`;
-}
