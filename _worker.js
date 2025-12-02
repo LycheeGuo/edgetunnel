@@ -58,10 +58,8 @@ export default {
                                 allLines = allLines.sort(() => 0.5 - Math.random()).slice(0, 20);
                             }
                             
-                            // 3. 格式修复：给纯IP加上 http:// 前缀
-                            academicIPs = allLines.map(ip => {
-                                if (!ip.includes('://')) return `http://${ip}`;
-                                return ip;
+                            // 3. 直接使用源文件内容（因为源文件已包含 http://）
+                            academicIPs = allLines;
                             });
                         }
                     } catch (fetchErr) {
@@ -1518,3 +1516,4 @@ async function html1101(host, 访问IP) {
 </body>
 </html>`;
 }
+
