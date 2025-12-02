@@ -11,34 +11,50 @@ const 国家国旗列表 = [
 ];
 
 /**
- * [新增] 从URL获取、筛选并随机选择代理
- * @param {string} url 代理列表URL
- * @returns {Promise<string[]>} 返回一个代理数组
+ * [修改] 从URL获取、解析JSON格式、筛选并随机选择代理
+ * @param {string} url 代理列表JSON文件的URL
+ * @returns {Promise<string[]>} 返回一个代理字符串数组
+ * 
+ * 预期的JSON格式:
+ * [
+ *   { "protocol": "socks5", "host": "1.2.3.4", "port": 1080, "username": "user", "password": "pw" },
+ *   { "protocol": "http", "host": "domain.com", "port": 8080 }
+ * ]
  */
 async function getProxiesFromUrl(url) {
 	try {
-		console.log(`Fetching proxies from: ${url}`);
-		const response = await fetch(url);
+		console.log(`Fetching JSON proxies from: ${url}`);
+		const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
 		if (!response.ok) {
 			console.error(`Failed to fetch proxy list from ${url}: ${response.statusText}`);
 			return [];
 		}
-		const text = await response.text();
-		const lines = text.split('\n').filter(line => line.trim() !== '');
 
-		// 1. 筛选出 http 和 socks5 代理
-		const filteredProxies = lines.filter(line => {
-			return line.startsWith('http://') || line.startsWith('socks5://');
-		});
-		console.log(`Found ${filteredProxies.length} http/socks5 proxies.`);
+		// 1. 直接解析JSON
+		const proxies = await response.json();
+		if (!Array.isArray(proxies)) {
+			console.error('Fetched data is not a JSON array.');
+			return [];
+		}
+		console.log(`Found ${proxies.length} proxies in JSON file.`);
 
-		// 2. 随机打乱数组 (Fisher-Yates shuffle)
+		// 2. 将JSON对象转换为代理字符串, 并筛选出http/socks5
+		const filteredProxies = proxies.map(p => {
+			if (!p.protocol || !p.host || !p.port) return null;
+			if (p.protocol !== 'http' && p.protocol !== 'socks5') return null;
+			
+			const auth = (p.username && p.password) ? `${p.username}:${p.password}@` : '';
+			return `${p.protocol}://${auth}${p.host}:${p.port}`;
+		}).filter(p => p !== null); // 移除无效或格式不正确的条目
+
+
+		// 3. 随机打乱数组 (Fisher-Yates shuffle)
 		for (let i = filteredProxies.length - 1; i > 0; i--) {
 			const j = Math.floor(Math.random() * (i + 1));
 			[filteredProxies[i], filteredProxies[j]] = [filteredProxies[j], filteredProxies[i]];
 		}
 
-		// 3. 截取最多20个代理
+		// 4. 截取最多20个代理
 		const selectedProxies = filteredProxies.slice(0, 20);
 		console.log(`Selected ${selectedProxies.length} proxies for the pool.`);
 		return selectedProxies;
