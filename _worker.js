@@ -30,29 +30,49 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [新增] 动态读取 ACADEMIC_PROXY 变量
+        // [修改] 动态读取 ACADEMIC_PROXY 变量 (增加随机采样和格式修复)
         if (env.ACADEMIC_PROXY) {
             try {
                 let proxyContent = env.ACADEMIC_PROXY;
-                
-                // 判断变量是否为 URL (以 http 开头)
+                let academicIPs = [];
+
+                // 1. 如果是 URL，先下载
                 if (proxyContent.startsWith('http://') || proxyContent.startsWith('https://')) {
                     try {
-                        // console.log('正在从远程拉取学术代理列表:', proxyContent);
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 2000); // 设置2秒超时，防止卡死
+                        
                         const response = await fetch(proxyContent, {
-                            headers: { 'User-Agent': 'Mozilla/5.0 (Worker)' } // 加上 UA 防止被 GitHub 拒绝
+                            headers: { 'User-Agent': 'Mozilla/5.0' },
+                            signal: controller.signal
                         });
+                        clearTimeout(timeoutId);
+
                         if (response.ok) {
-                            proxyContent = await response.text();
-                        } else {
-                            console.log('拉取远程代理失败，状态码:', response.status);
+                            const text = await response.text();
+                            // 按行分割，去除空行
+                            let allLines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+                            
+                            // 2. 随机采样：如果超过 20 个，随机选 20 个，防止内存爆炸
+                            if (allLines.length > 20) {
+                                allLines = allLines.sort(() => 0.5 - Math.random()).slice(0, 20);
+                            }
+                            
+                            // 3. 格式修复：给纯IP加上 http:// 前缀
+                            academicIPs = allLines.map(ip => {
+                                if (!ip.includes('://')) return `http://${ip}`;
+                                return ip;
+                            });
                         }
                     } catch (fetchErr) {
-                        console.log('拉取远程代理出错:', fetchErr);
+                        console.log('拉取远程代理失败:', fetchErr.message);
                     }
+                } else {
+                    // 如果不是 URL，按原有逻辑处理（逗号分隔的字符串）
+                    academicIPs = await 整理成数组(proxyContent);
                 }
 
-                const academicIPs = await 整理成数组(proxyContent);
+                // 4. 最终选择
                 if (academicIPs.length > 0) {
                     学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
                     // console.log('选中学术代理:', 学术反代IP);
