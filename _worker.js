@@ -30,12 +30,32 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // 读取 ACADEMIC_PROXY 变量
+        // [新增] 动态读取 ACADEMIC_PROXY 变量
         if (env.ACADEMIC_PROXY) {
             try {
-                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
+                let proxyContent = env.ACADEMIC_PROXY;
+                
+                // 判断变量是否为 URL (以 http 开头)
+                if (proxyContent.startsWith('http://') || proxyContent.startsWith('https://')) {
+                    try {
+                        // console.log('正在从远程拉取学术代理列表:', proxyContent);
+                        const response = await fetch(proxyContent, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Worker)' } // 加上 UA 防止被 GitHub 拒绝
+                        });
+                        if (response.ok) {
+                            proxyContent = await response.text();
+                        } else {
+                            console.log('拉取远程代理失败，状态码:', response.status);
+                        }
+                    } catch (fetchErr) {
+                        console.log('拉取远程代理出错:', fetchErr);
+                    }
+                }
+
+                const academicIPs = await 整理成数组(proxyContent);
                 if (academicIPs.length > 0) {
                     学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
+                    // console.log('选中学术代理:', 学术反代IP);
                 }
             } catch (e) {
                 console.log('解析 ACADEMIC_PROXY 失败:', e);
