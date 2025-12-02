@@ -30,49 +30,12 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [修改] 动态读取 ACADEMIC_PROXY 变量 (增加随机采样和格式修复)
+        // 读取 ACADEMIC_PROXY 变量
         if (env.ACADEMIC_PROXY) {
             try {
-                let proxyContent = env.ACADEMIC_PROXY;
-                let academicIPs = [];
-
-                // 1. 如果是 URL，先下载
-                if (proxyContent.startsWith('http://') || proxyContent.startsWith('https://')) {
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 2000); // 设置2秒超时，防止卡死
-                        
-                        const response = await fetch(proxyContent, {
-                            headers: { 'User-Agent': 'Mozilla/5.0' },
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-
-                        if (response.ok) {
-                            const text = await response.text();
-                            // 按行分割，去除空行
-                            let allLines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
-                            
-                            // 2. 随机采样：如果超过 20 个，随机选 20 个，防止内存爆炸
-                            if (allLines.length > 20) {
-                                allLines = allLines.sort(() => 0.5 - Math.random()).slice(0, 20);
-                            }
-                            
-                            // 3. 直接使用源文件内容（因为源文件已包含 http://）
-                            academicIPs = allLines;
-                        }
-                    } catch (fetchErr) {
-                        console.log('拉取远程代理失败:', fetchErr.message);
-                    }
-                } else {
-                    // 如果不是 URL，按原有逻辑处理（逗号分隔的字符串）
-                    academicIPs = await 整理成数组(proxyContent);
-                }
-
-                // 4. 最终选择
+                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
                 if (academicIPs.length > 0) {
                     学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
-                    // console.log('选中学术代理:', 学术反代IP);
                 }
             } catch (e) {
                 console.log('解析 ACADEMIC_PROXY 失败:', e);
@@ -530,25 +493,23 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // [新增逻辑] 自动判断协议并解析账号密码
-            let proxyProtocol = 'http';
-            let proxyAddress = 学术反代IP;
-            if (proxyAddress.toLowerCase().startsWith('socks5://')) {
-                proxyProtocol = 'socks5';
-                proxyAddress = proxyAddress.substring(9);
-            } else if (proxyAddress.toLowerCase().startsWith('http://')) {
-                 proxyAddress = proxyAddress.substring(7);
-            } else if (proxyAddress.toLowerCase().startsWith('https://')) {
-                 proxyAddress = proxyAddress.substring(8);
-            }
-            
-            // 使用脚本内置的解析函数 (支持 user:pass@ip:port)
-            parsedSocks5Address = await 获取SOCKS5账号(proxyAddress);
-            
-            启用SOCKS5反代 = proxyProtocol;
+            // 强制启用 HTTP 代理模式
+            启用SOCKS5反代 = 'http';
             启用SOCKS5全局反代 = true;
-            我的SOCKS5账号 = proxyAddress; // 用于日志记录
             
+            // 解析代理 IP 和端口
+            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
+            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
+            const parts = proxyStr.split(':');
+            
+            // 覆盖全局代理配置
+            parsedSocks5Address = {
+                hostname: parts[0],
+                port: parseInt(parts[1]) || 80,
+                username: '', 
+                password: ''
+            };
+            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
@@ -1515,5 +1476,3 @@ async function html1101(host, 访问IP) {
 </body>
 </html>`;
 }
-
-
