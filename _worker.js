@@ -1,10 +1,7 @@
 import { connect } from "cloudflare:sockets";
-
-// [修改1] 添加 '学术反代IP' 变量定义
-let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
+let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
-
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
 export default {
     async fetch(request, env, ctx) {
@@ -18,24 +15,10 @@ export default {
         const envUUID = env.UUID || env.uuid;
         const userID = (envUUID && uuidRegex.test(envUUID)) ? envUUID.toLowerCase() : [userIDMD5.slice(0, 8), userIDMD5.slice(8, 12), '4' + userIDMD5.slice(13, 16), userIDMD5.slice(16, 20), userIDMD5.slice(20)].join('-');
         const host = env.HOST ? env.HOST.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split(':')[0] : url.hostname;
-        
         if (env.PROXYIP) {
             const proxyIPs = await 整理成数组(env.PROXYIP);
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
-        
-        // [修改2] 添加读取 ACADEMIC_PROXY 变量的逻辑
-        if (env.ACADEMIC_PROXY) {
-            try {
-                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
-                if (academicIPs.length > 0) {
-                    学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
-                }
-            } catch (e) {
-                console.log('解析 ACADEMIC_PROXY 失败:', e);
-            }
-        }
-
         const 访问IP = request.headers.get('X-Real-IP') || request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || request.headers.get('True-Client-IP') || request.headers.get('Fly-Client-IP') || request.headers.get('X-Appengine-Remote-Addr') || request.headers.get('X-Forwarded-For') || request.headers.get('X-Real-IP') || request.headers.get('X-Cluster-Client-IP') || request.cf?.clientTcpRtt || '未知IP';
         if (env.GO2SOCKS5) SOCKS5白名单 = await 整理成数组(env.GO2SOCKS5);
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -57,6 +40,7 @@ export default {
                     const params = new URLSearchParams(formData);
                     const 输入密码 = params.get('password');
                     if (输入密码 === 管理员密码) {
+                        // 密码正确，设置cookie并返回成功标记
                         const 响应 = new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         响应.headers.set('Set-Cookie', `auth=${await MD5MD5(UA + 加密秘钥 + 管理员密码)}; Path=/; Max-Age=86400; HttpOnly`);
                         return 响应;
@@ -66,6 +50,7 @@ export default {
             } else if (访问路径 == 'admin' || 访问路径.startsWith('admin/')) {//验证cookie后响应管理页面
                 const cookies = request.headers.get('Cookie') || '';
                 const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
+                // 没有cookie或cookie错误，跳转到/login页面
                 if (!authCookie || authCookie !== await MD5MD5(UA + 加密秘钥 + 管理员密码)) return new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
                 if (访问路径 === 'admin/log.json') {// 读取日志内容
                     const 读取日志内容 = await env.KV.get('log.json') || '[]';
@@ -115,18 +100,22 @@ export default {
                         const errorResponse = { msg: '配置重置失败，失败原因：' + err.message, error: err.message };
                         return new Response(JSON.stringify(errorResponse, null, 2), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                     }
-                } else if (request.method === 'POST') {// 处理 KV 操作
-                    if (访问路径 === 'admin/config.json') {
+                } else if (request.method === 'POST') {// 处理 KV 操作（POST 请求）
+                    if (访问路径 === 'admin/config.json') { // 保存config.json配置
                         try {
                             const newConfig = await request.json();
+                            // 验证配置完整性
                             if (!newConfig.UUID || !newConfig.HOST) return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+
+                            // 保存到 KV
                             await env.KV.put('config.json', JSON.stringify(newConfig, null, 2));
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         } catch (error) {
+                            console.error('保存配置失败:', error);
                             return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         }
-                    } else if (访问路径 === 'admin/cf.json') {
+                    } else if (访问路径 === 'admin/cf.json') { // 保存cf.json配置
                         try {
                             const newConfig = await request.json();
                             const CF_JSON = { Email: null, GlobalAPIKey: null, AccountID: null, APIToken: null };
@@ -145,13 +134,16 @@ export default {
                                     return new Response(JSON.stringify({ error: '配置不完整' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                                 }
                             }
+
+                            // 保存到 KV
                             await env.KV.put('cf.json', JSON.stringify(CF_JSON, null, 2));
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         } catch (error) {
+                            console.error('保存配置失败:', error);
                             return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         }
-                    } else if (访问路径 === 'admin/tg.json') {
+                    } else if (访问路径 === 'admin/tg.json') { // 保存tg.json配置
                         try {
                             const newConfig = await request.json();
                             if (newConfig.init && newConfig.init === true) {
@@ -164,31 +156,33 @@ export default {
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Config', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '配置已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         } catch (error) {
+                            console.error('保存配置失败:', error);
                             return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         }
-                    } else if (区分大小写访问路径 === 'admin/ADD.txt') {
+                    } else if (区分大小写访问路径 === 'admin/ADD.txt') { // 保存自定义优选IP
                         try {
                             const customIPs = await request.text();
-                            await env.KV.put('ADD.txt', customIPs);
+                            await env.KV.put('ADD.txt', customIPs);// 保存到 KV
                             ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Save_Custom_IPs', config_JSON));
                             return new Response(JSON.stringify({ success: true, message: '自定义IP已保存' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         } catch (error) {
+                            console.error('保存自定义IP失败:', error);
                             return new Response(JSON.stringify({ error: '保存自定义IP失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                         }
                     } else return new Response(JSON.stringify({ error: '不支持的POST请求路径' }), { status: 404, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-                } else if (访问路径 === 'admin/config.json') {
+                } else if (访问路径 === 'admin/config.json') {// 处理 admin/config.json 请求，返回JSON
                     return new Response(JSON.stringify(config_JSON, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
-                } else if (区分大小写访问路径 === 'admin/ADD.txt') {
+                } else if (区分大小写访问路径 === 'admin/ADD.txt') {// 处理 admin/ADD.txt 请求，返回本地优选IP
                     let 本地优选IP = await env.KV.get('ADD.txt') || 'null';
                     if (本地优选IP == 'null') 本地优选IP = (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[1];
                     return new Response(本地优选IP, { status: 200, headers: { 'Content-Type': 'text/plain;charset=utf-8', 'asn': request.cf.asn } });
-                } else if (访问路径 === 'admin/cf.json') {
+                } else if (访问路径 === 'admin/cf.json') {// CF配置文件
                     return new Response(JSON.stringify(request.cf, null, 2), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
                 }
 
                 ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
                 return fetch(Pages静态页面 + '/admin');
-            } else if (访问路径 === 'logout') {
+            } else if (访问路径 === 'logout') {//清除cookie并跳转到登录页面
                 const 响应 = new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
                 响应.headers.set('Set-Cookie', 'auth=; Path=/; Max-Age=0; HttpOnly');
                 return 响应;
@@ -247,16 +241,22 @@ export default {
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
                             订阅内容 = 完整优选IP.map(原始地址 => {
+                                // 统一正则: 匹配 域名/IPv4/IPv6地址 + 可选端口 + 可选备注
+                                // 示例: 
+                                //   - 域名: hj.xmm1993.top:2096#备注 或 example.com
+                                //   - IPv4: 166.0.188.128:443#Los Angeles 或 166.0.188.128
+                                //   - IPv6: [2606:4700::]:443#CMCC 或 [2606:4700::]
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
 
                                 let 节点地址, 节点端口 = "443", 节点备注;
 
                                 if (match) {
-                                    节点地址 = match[1];  
-                                    节点端口 = match[2] || "443";  
-                                    节点备注 = match[3] || 节点地址; 
+                                    节点地址 = match[1];  // IP地址或域名(可能带方括号)
+                                    节点端口 = match[2] || "443";  // 端口,默认443
+                                    节点备注 = match[3] || 节点地址;  // 备注,默认为地址本身
                                 } else {
+                                    // 不规范的格式，跳过处理返回null
                                     console.warn(`[订阅内容] 不规范的IP格式已忽略: ${原始地址}`);
                                     return null;
                                 }
@@ -476,35 +476,7 @@ function 解析魏烈思请求(chunk, token) {
     if (!hostname) return { hasError: true, message: `Invalid address: ${addressType}` };
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
-
-// [修改3] forwardataTCP 函数逻辑更新：谷歌学术分流 + 强制走代理
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
-    if (host.includes('scholar.google.com') && 学术反代IP) {
-        try {
-            // 强制启用 HTTP 代理模式
-            启用SOCKS5反代 = 'http';
-            启用SOCKS5全局反代 = true;
-            
-            // 解析代理 IP 和端口
-            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
-            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
-            const parts = proxyStr.split(':');
-            
-            // 覆盖全局代理配置
-            parsedSocks5Address = {
-                hostname: parts[0],
-                port: parseInt(parts[1]) || 80,
-                username: '', 
-                password: ''
-            };
-            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
-        } catch (e) {
-            console.log('[学术分流] 代理解析失败:', e);
-        }
-    }
-
     console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
@@ -530,12 +502,20 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    // [修改4] 强制所有流量走代理（学术或默认ProxyIP），不再尝试直连
-    try {
-        await connecttoPry();
-    } catch (err) {
-        // console.error('代理连接失败:', err);
-        throw err;
+    if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
+        try {
+            await connecttoPry();
+        } catch (err) {
+            throw err;
+        }
+    } else {
+        try {
+            const initialSocket = await connectDirect(host, portNum, rawData);
+            remoteConnWrapper.socket = initialSocket;
+            connectStreams(initialSocket, ws, respHeader, connecttoPry);
+        } catch (err) {
+            await connecttoPry();
+        }
     }
 }
 
@@ -1392,7 +1372,11 @@ async function html1101(host, 访问IP) {
     const 随机字符串 = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2, '0')).join('');
 
     return `<!DOCTYPE html>
-<html class="no-js" lang="en-US"> <head>
+<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
+<head>
 <title>Worker threw exception | ${host} | Cloudflare</title>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -1400,9 +1384,11 @@ async function html1101(host, 访问IP) {
 <meta name="robots" content="noindex, nofollow" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
+<!--[if lt IE 9]><link rel="stylesheet" id='cf_styles-ie-css' href="/cdn-cgi/styles/cf.errors.ie.css" /><![endif]-->
 <style>body{margin:0;padding:0}</style>
 
 
+<!--[if gte IE 10]><!-->
 <script>
   if (!navigator.cookieEnabled) {
     window.addEventListener('DOMContentLoaded', function () {
@@ -1411,6 +1397,8 @@ async function html1101(host, 访问IP) {
     })
   }
 </script>
+<!--<![endif]-->
+
 </head>
 <body>
     <div id="cf-wrapper">
@@ -1423,7 +1411,11 @@ async function html1101(host, 访问IP) {
                     <small class="heading-ray-id">Ray ID: ${随机字符串} &bull; ${格式化时间戳} UTC</small>
                 </h1>
                 <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
-            </div><section></section><div class="cf-section cf-wrapper">
+            </div><!-- /.header -->
+    
+            <section></section><!-- spacer -->
+    
+            <div class="cf-section cf-wrapper">
                 <div class="cf-columns two">
                     <div class="cf-column">
                         <h2 data-translate="what_happened">What happened?</h2>
@@ -1436,7 +1428,9 @@ async function html1101(host, 访问IP) {
                     </div>
                     
                 </div>
-            </div><div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
+            </div><!-- /.section -->
+    
+            <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
     <p class="text-13">
       <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold"> ${随机字符串}</strong></span>
       <span class="cf-footer-separator sm:hidden">&bull;</span>
@@ -1450,7 +1444,12 @@ async function html1101(host, 访问IP) {
       
     </p>
     <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
-  </div></div></div><script>
+  </div><!-- /.error-footer -->
+
+        </div><!-- /#cf-error-details -->
+    </div><!-- /#cf-wrapper -->
+
+     <script>
     window._cf_translation = {};
     
     
