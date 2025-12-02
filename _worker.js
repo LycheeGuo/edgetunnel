@@ -1,14 +1,9 @@
 import { connect } from "cloudflare:sockets";
 
-// [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
+// [修改1] 添加 '学术反代IP' 变量定义
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
-
-// [新增] 自定义国旗列表 (你可以自己增减)
-const 国家国旗列表 = [
-    '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG', '🇹🇼 TW', '🇬🇧 UK', '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
-];
 
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
 export default {
@@ -24,13 +19,12 @@ export default {
         const userID = (envUUID && uuidRegex.test(envUUID)) ? envUUID.toLowerCase() : [userIDMD5.slice(0, 8), userIDMD5.slice(8, 12), '4' + userIDMD5.slice(13, 16), userIDMD5.slice(16, 20), userIDMD5.slice(20)].join('-');
         const host = env.HOST ? env.HOST.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split(':')[0] : url.hostname;
         
-        // 处理普通反代IP
         if (env.PROXYIP) {
             const proxyIPs = await 整理成数组(env.PROXYIP);
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // 读取 ACADEMIC_PROXY 变量
+        // [修改2] 添加读取 ACADEMIC_PROXY 变量的逻辑
         if (env.ACADEMIC_PROXY) {
             try {
                 const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
@@ -252,9 +246,7 @@ export default {
                         if (!url.searchParams.has('sub') && config_JSON.优选订阅生成.local) { // 本地生成订阅
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
-                            
-                            // [重点修改] 节点生成逻辑
-                            订阅内容 = 完整优选IP.map((原始地址, index) => {
+                            订阅内容 = 完整优选IP.map(原始地址 => {
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
 
@@ -263,13 +255,9 @@ export default {
                                 if (match) {
                                     节点地址 = match[1];  
                                     节点端口 = match[2] || "443";  
-                                    
-                                    // [修改] 纯国旗名称，去掉了数字和特殊空格
-                                    // 如果客户端显示重复节点，那是客户端的行为（通常会自动加序号）
-                                    const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
-                                    节点备注 = 随机国旗; 
-
+                                    节点备注 = match[3] || 节点地址; 
                                 } else {
+                                    console.warn(`[订阅内容] 不规范的IP格式已忽略: ${原始地址}`);
                                     return null;
                                 }
                                 const 节点HOST = 随机替换通配符(host);
@@ -488,6 +476,8 @@ function 解析魏烈思请求(chunk, token) {
     if (!hostname) return { hasError: true, message: `Invalid address: ${addressType}` };
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
+
+// [修改3] forwardataTCP 函数逻辑更新：谷歌学术分流 + 强制走代理
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
     // 谷歌学术自动分流逻辑
     // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
@@ -540,20 +530,12 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
-        try {
-            await connecttoPry();
-        } catch (err) {
-            throw err;
-        }
-    } else {
-        try {
-            const initialSocket = await connectDirect(host, portNum, rawData);
-            remoteConnWrapper.socket = initialSocket;
-            connectStreams(initialSocket, ws, respHeader, connecttoPry);
-        } catch (err) {
-            await connecttoPry();
-        }
+    // [修改4] 强制所有流量走代理（学术或默认ProxyIP），不再尝试直连
+    try {
+        await connecttoPry();
+    } catch (err) {
+        // console.error('代理连接失败:', err);
+        throw err;
     }
 }
 
@@ -831,7 +813,7 @@ function 掩码敏感信息(文本, 前缀长度 = 3, 后缀长度 = 2) {
     if (文本.length <= 前缀长度 + 后缀长度) return 文本; // 如果长度太短，直接返回
 
     const 前缀 = 文本.slice(0, 前缀长度);
-    const 后缀 =文本.slice(-后缀长度);
+    const 后缀 = 文本.slice(-后缀长度);
     const 星号数量 = 文本.length - 前缀长度 - 后缀长度;
 
     return `${前缀}${'*'.repeat(星号数量)}${后缀}`;
