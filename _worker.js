@@ -17,6 +17,7 @@ const 国家国旗列表 = [
  */
 async function getProxiesFromUrl(url) {
 	try {
+		console.log(`Fetching proxies from: ${url}`);
 		const response = await fetch(url);
 		if (!response.ok) {
 			console.error(`Failed to fetch proxy list from ${url}: ${response.statusText}`);
@@ -29,6 +30,7 @@ async function getProxiesFromUrl(url) {
 		const filteredProxies = lines.filter(line => {
 			return line.startsWith('http://') || line.startsWith('socks5://');
 		});
+		console.log(`Found ${filteredProxies.length} http/socks5 proxies.`);
 
 		// 2. 随机打乱数组 (Fisher-Yates shuffle)
 		for (let i = filteredProxies.length - 1; i > 0; i--) {
@@ -38,7 +40,7 @@ async function getProxiesFromUrl(url) {
 
 		// 3. 截取最多20个代理
 		const selectedProxies = filteredProxies.slice(0, 20);
-		console.log(`Successfully fetched and selected ${selectedProxies.length} proxies.`);
+		console.log(`Selected ${selectedProxies.length} proxies for the pool.`);
 		return selectedProxies;
 
 	} catch (error) {
@@ -538,23 +540,35 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
+    // [修复] 谷歌学术自动分流逻辑
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // 根据学术反代IP的协议头判断是http还是socks5
+            console.log(`[学术分流] 目标: ${host}, 使用代理: ${学术反代IP}`);
+            let proxyProtocol, proxyAddress;
+
             if (学术反代IP.startsWith('socks5://')) {
-                启用SOCKS5反代 = 'socks5';
-            } else { // 默认为 http 或 https
-                启用SOCKS5反代 = 'http';
+                proxyProtocol = 'socks5';
+                proxyAddress = 学术反代IP.substring('socks5://'.length);
+            } else if (学术反代IP.startsWith('http://')) {
+                proxyProtocol = 'http';
+                proxyAddress = 学术反代IP.substring('http://'.length);
+            } else {
+                // 如果没有协议头，假定为http
+                proxyProtocol = 'http';
+                proxyAddress = 学术反代IP;
             }
+
+            启用SOCKS5反代 = proxyProtocol;
             启用SOCKS5全局反代 = true;
             
-            // 从 'socks5://user:pass@host:port' 或 'http://user:pass@host:port' 中解析出账号信息
-            parsedSocks5Address = await 获取SOCKS5账号(学术反代IP.substring(学术反代IP.indexOf('://') + 3));
+            // 使用通用的解析函数解析地址
+            parsedSocks5Address = await 获取SOCKS5账号(proxyAddress);
+            console.log(`[学术分流] 解析成功:`, JSON.stringify(parsedSocks5Address));
 
         } catch (e) {
-            console.log('[学术分流] 代理解析失败:', e);
+            console.error('[学术分流] 代理地址解析失败:', e.message);
+            // 解析失败，则不使用代理，继续直连
+            启用SOCKS5反代 = null;
         }
     }
 
