@@ -60,7 +60,6 @@ export default {
                             
                             // 3. 直接使用源文件内容（因为源文件已包含 http://）
                             academicIPs = allLines;
-                            });
                         }
                     } catch (fetchErr) {
                         console.log('拉取远程代理失败:', fetchErr.message);
@@ -1516,4 +1515,5 @@ async function html1101(host, 访问IP) {
 </body>
 </html>`;
 }
+
 
