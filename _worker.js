@@ -10,62 +10,6 @@ const 国家国旗列表 = [
     '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG', '🇹🇼 TW', '🇬🇧 UK', '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
 ];
 
-/**
- * [修改] 从URL获取、解析JSON格式、筛选并随机选择代理
- * @param {string} url 代理列表JSON文件的URL
- * @returns {Promise<string[]>} 返回一个代理字符串数组
- * 
- * 预期的JSON格式:
- * [
- *   { "protocol": "socks5", "host": "1.2.3.4", "port": 1080, "username": "user", "password": "pw" },
- *   { "protocol": "http", "host": "domain.com", "port": 8080 }
- * ]
- */
-async function getProxiesFromUrl(url) {
-	try {
-		console.log(`Fetching JSON proxies from: ${url}`);
-		const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-		if (!response.ok) {
-			console.error(`Failed to fetch proxy list from ${url}: ${response.statusText}`);
-			return [];
-		}
-
-		// 1. 直接解析JSON
-		const proxies = await response.json();
-		if (!Array.isArray(proxies)) {
-			console.error('Fetched data is not a JSON array.');
-			return [];
-		}
-		console.log(`Found ${proxies.length} proxies in JSON file.`);
-
-		// 2. 将JSON对象转换为代理字符串, 并筛选出http/socks5
-		const filteredProxies = proxies.map(p => {
-			if (!p.protocol || !p.host || !p.port) return null;
-			if (p.protocol !== 'http' && p.protocol !== 'socks5') return null;
-			
-			const auth = (p.username && p.password) ? `${p.username}:${p.password}@` : '';
-			return `${p.protocol}://${auth}${p.host}:${p.port}`;
-		}).filter(p => p !== null); // 移除无效或格式不正确的条目
-
-
-		// 3. 随机打乱数组 (Fisher-Yates shuffle)
-		for (let i = filteredProxies.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[filteredProxies[i], filteredProxies[j]] = [filteredProxies[j], filteredProxies[i]];
-		}
-
-		// 4. 截取最多20个代理
-		const selectedProxies = filteredProxies.slice(0, 20);
-		console.log(`Selected ${selectedProxies.length} proxies for the pool.`);
-		return selectedProxies;
-
-	} catch (error) {
-		console.error('Error getting proxies from URL:', error);
-		return [];
-	}
-}
-
-
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
 export default {
     async fetch(request, env, ctx) {
@@ -77,7 +21,7 @@ export default {
         const userIDMD5 = await MD5MD5(管理员密码 + 加密秘钥);
         const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
         const envUUID = env.UUID || env.uuid;
-        const userID = (envUUID && uuidRegex.test(envUUID)) ? envUUID.toLowerCase() : [userIDMD5.slice(0, 8), userIDMD5.slice(8, 12), '4' + userIDMD5.slice(13, 16), userIDMD5.slice(16, 20), userIDMD5.slice(20, 32)].join('-');
+        const userID = (envUUID && uuidRegex.test(envUUID)) ? envUUID.toLowerCase() : [userIDMD5.slice(0, 8), userIDMD5.slice(8, 12), '4' + userIDMD5.slice(13, 16), userIDMD5.slice(16, 20), userIDMD5.slice(20)].join('-');
         const host = env.HOST ? env.HOST.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split(':')[0] : url.hostname;
         
         // 处理普通反代IP
@@ -86,22 +30,11 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [修改] 读取 ACADEMIC_PROXY 变量
+        // 读取 ACADEMIC_PROXY 变量
         if (env.ACADEMIC_PROXY) {
             try {
-                const academicProxyValue = env.ACADEMIC_PROXY.trim();
-                let academicIPs = [];
-
-                if (academicProxyValue.startsWith('http')) {
-                    // 如果是URL, 则从URL获取代理
-                    academicIPs = await getProxiesFromUrl(academicProxyValue);
-                } else {
-                    // 否则, 按原来的逗号分隔方式处理
-                    academicIPs = await 整理成数组(academicProxyValue);
-                }
-
+                const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
                 if (academicIPs.length > 0) {
-                    // 从获取到的列表中随机选择一个
                     学术反代IP = academicIPs[Math.floor(Math.random() * academicIPs.length)];
                 }
             } catch (e) {
@@ -109,12 +42,12 @@ export default {
             }
         }
 
-        const 访问IP = request.headers.get('X-Real-IP') || request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || request.headers.get('True-Client-IP') || request.headers.get('x-client-ip') || 'Unknown';
+        const 访问IP = request.headers.get('X-Real-IP') || request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || request.headers.get('True-Client-IP') || request.headers.get('Fly-Client-IP') || request.headers.get('X-Appengine-Remote-Addr') || request.headers.get('X-Forwarded-For') || request.headers.get('X-Real-IP') || request.headers.get('X-Cluster-Client-IP') || request.cf?.clientTcpRtt || '未知IP';
         if (env.GO2SOCKS5) SOCKS5白名单 = await 整理成数组(env.GO2SOCKS5);
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
             if (url.protocol === 'http:') return Response.redirect(url.href.replace(`http://${url.hostname}`, `https://${url.hostname}`), 301);
-            if (!管理员密码) return fetch(Pages静态页面 + '/noADMIN').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); return new Response(r.body, { ...r, headers }); });
-            if (!env.KV) return fetch(Pages静态页面 + '/noKV').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); return new Response(r.body, { ...r, headers }); });
+            if (!管理员密码) return fetch(Pages静态页面 + '/noADMIN').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }); });
+            if (!env.KV) return fetch(Pages静态页面 + '/noKV').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }); });
             const 访问路径 = url.pathname.slice(1).toLowerCase();
             const 区分大小写访问路径 = url.pathname.slice(1);
             if (访问路径 === 加密秘钥 && 加密秘钥 !== '勿动此默认密钥，有需求请自行通过添加变量KEY进行修改') {//快速订阅
@@ -289,7 +222,7 @@ export default {
                         "Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
                         "Cache-Control": "no-store",
                     };
-                    const isSubConverterRequest = request.headers.has('b64') || request.headers.has('base64') || request.headers.get('subconverter-request') || request.headers.get('subconverter-v2ray-subscription');
+                    const isSubConverterRequest = request.headers.has('b64') || request.headers.has('base64') || request.headers.get('subconverter-request') || request.headers.get('subconverter-version') || ua.includes('subconverter') || ua.includes(('CF-Workers-SUB').toLowerCase());
                     const 订阅类型 = isSubConverterRequest
                         ? 'mixed'
                         : url.searchParams.has('target')
@@ -307,8 +240,8 @@ export default {
                     let 订阅内容 = '';
                     if (订阅类型 === 'mixed') {
                         const 节点路径 = config_JSON.启用0RTT ? config_JSON.PATH + '?ed=2560' : config_JSON.PATH;
-                        const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('10,10,tlshello')}` : config_JSON.TLS分片 == 'Hysteria2' ? `&fragment=${encodeURIComponent('10-20,20-50,tlshello')}` : '';
-                        const 完整优选列表 = config_JSON.优选订阅生成.本地IP库.随机IP ? (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[0] : await 整理成数组(await env.KV.get('ADD.txt'));
+                        const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('3,1,tlshello')}` : '';
+                        const 完整优选列表 = config_JSON.优选订阅生成.本地IP库.随机IP ? (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[0] : await env.KV.get('ADD.txt') ? await 整理成数组(await env.KV.get('ADD.txt')) : (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[0];
                         const 优选API = [], 优选IP = [], 其他节点 = [];
                         for (const 元素 of 完整优选列表) {
                             if (元素.toLowerCase().startsWith('https://')) 优选API.push(元素);
@@ -340,13 +273,13 @@ export default {
                                     return null;
                                 }
                                 const 节点HOST = 随机替换通配符(host);
-                                return `${协议类型}://${config_JSON.UUID}@${节点地址}:${节点端口}?security=tls&type=${config_JSON.传输协议}&host=${节点HOST}&sni=${节点HOST}&path=${encodeURIComponent(节点路径)}${TLS分片参数}#${encodeURIComponent(节点备注)}`;
+                                return `${协议类型}://${config_JSON.UUID}@${节点地址}:${节点端口}?security=tls&type=${config_JSON.传输协议}&host=${节点HOST}&sni=${节点HOST}&path=${encodeURIComponent(config_JSON.随机路径 ? 随机路径() + 节点路径 : 节点路径) + TLS分片参数}&encryption=none${config_JSON.跳过证书验证 ? '&allowInsecure=1' : ''}#${encodeURIComponent(节点备注)}`;
                             }).filter(item => item !== null).join('\n');
                             订阅内容 = btoa(其他节点LINK + 订阅内容);
                         } else { // 优选订阅生成器
                             let 优选订阅生成器HOST = url.searchParams.get('sub') || config_JSON.优选订阅生成.SUB;
                             优选订阅生成器HOST = 优选订阅生成器HOST && !/^https?:\/\//i.test(优选订阅生成器HOST) ? `https://${优选订阅生成器HOST}` : 优选订阅生成器HOST;
-                            const 优选订阅生成器URL = `${优选订阅生成器HOST}/sub?host=example.com&${协议类型 === ('v' + 'le' + 'ss') ? 'uuid' : 'pw'}=00000000-0000-4000-8000-000000000000&path=${encodeURIComponent(节点路径)}&tls=tls&sni=example.com&serviceName=default&proxy-type=${协议类型}&sub-sites=${优选API.join('|')}&sub-ipv4=${优选IP.join(',')}`;
+                            const 优选订阅生成器URL = `${优选订阅生成器HOST}/sub?host=example.com&${协议类型 === ('v' + 'le' + 'ss') ? 'uuid' : 'pw'}=00000000-0000-4000-8000-000000000000&path=${encodeURIComponent(config_JSON.随机路径 ? 随机路径() + 节点路径 : 节点路径) + TLS分片参数}&type=${config_JSON.传输协议}`;
                             try {
                                 const response = await fetch(优选订阅生成器URL, { headers: { 'User-Agent': 'v2rayN/edge' + 'tunnel (https://github.com/cmliu/edge' + 'tunnel)' } });
                                 if (response.ok) 订阅内容 = btoa(其他节点LINK + atob(await response.text()));
@@ -356,12 +289,12 @@ export default {
                             }
                         }
                     } else { // 订阅转换
-                        const 订阅转换URL = `${config_JSON.订阅转换配置.SUBAPI}/sub?target=${订阅类型}&url=${encodeURIComponent(url.protocol + '//' + url.host + '/sub?target=mixed&token=' + 订阅TOKEN)}&config=${encodeURIComponent(config_JSON.订阅转换配置.SUBCONFIG)}&emoji=${config_JSON.订阅转换配置.SUBEMOJI}`;
+                        const 订阅转换URL = `${config_JSON.订阅转换配置.SUBAPI}/sub?target=${订阅类型}&url=${encodeURIComponent(url.protocol + '//' + url.host + '/sub?target=mixed&token=' + 订阅TOKEN + (url.searchParams.has('sub') && url.searchParams.get('sub') != '' ? `&sub=${url.searchParams.get('sub')}` : ''))}&config=${encodeURIComponent(config_JSON.订阅转换配置.SUBCONFIG)}&emoji=${config_JSON.订阅转换配置.SUBEMOJI}&scv=${config_JSON.跳过证书验证}`;
                         try {
                             const response = await fetch(订阅转换URL, { headers: { 'User-Agent': 'Subconverter for ' + 订阅类型 + ' edge' + 'tunnel(https://github.com/cmliu/edge' + 'tunnel)' } });
                             if (response.ok) {
                                 订阅内容 = await response.text();
-                                if (url.searchParams.has('surge') || ua.includes('surge')) 订阅内容 = surge(订阅内容, url.protocol + '//' + url.host + '/sub?token=' + 订阅TOKEN + '&surge=' + config_JSON.TLS分片, config_JSON);
+                                if (url.searchParams.has('surge') || ua.includes('surge')) 订阅内容 = surge(订阅内容, url.protocol + '//' + url.host + '/sub?token=' + 订阅TOKEN + '&surge', config_JSON);
                             } else return new Response('订阅转换后端异常：' + response.statusText, { status: response.status });
                         } catch (error) {
                             return new Response('订阅转换后端异常：' + error.message, { status: 403 });
@@ -556,39 +489,33 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // [修复] 谷歌学术自动分流逻辑
+    // 谷歌学术自动分流逻辑
+    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            console.log(`[学术分流] 目标: ${host}, 使用代理: ${学术反代IP}`);
-            let proxyProtocol, proxyAddress;
-
-            if (学术反代IP.startsWith('socks5://')) {
-                proxyProtocol = 'socks5';
-                proxyAddress = 学术反代IP.substring('socks5://'.length);
-            } else if (学术反代IP.startsWith('http://')) {
-                proxyProtocol = 'http';
-                proxyAddress = 学术反代IP.substring('http://'.length);
-            } else {
-                // 如果没有协议头，假定为http
-                proxyProtocol = 'http';
-                proxyAddress = 学术反代IP;
-            }
-
-            启用SOCKS5反代 = proxyProtocol;
+            // 强制启用 HTTP 代理模式
+            启用SOCKS5反代 = 'http';
             启用SOCKS5全局反代 = true;
             
-            // 使用通用的解析函数解析地址
-            parsedSocks5Address = await 获取SOCKS5账号(proxyAddress);
-            console.log(`[学术分流] 解析成功:`, JSON.stringify(parsedSocks5Address));
-
+            // 解析代理 IP 和端口
+            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
+            const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
+            const parts = proxyStr.split(':');
+            
+            // 覆盖全局代理配置
+            parsedSocks5Address = {
+                hostname: parts[0],
+                port: parseInt(parts[1]) || 80,
+                username: '', 
+                password: ''
+            };
+            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
         } catch (e) {
-            console.error('[学术分流] 代理地址解析失败:', e.message);
-            // 解析失败，则不使用代理，继续直连
-            启用SOCKS5反代 = null;
+            console.log('[学术分流] 代理解析失败:', e);
         }
     }
 
-    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号, SOCKS5白名单: SOCKS5白名单, 学术反代: 学术反代IP } }));
+    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
         const writer = remoteSock.writable.getWriter();
@@ -817,7 +744,7 @@ async function httpConnect(targetHost, targetPort, initialData) {
         throw error;
     }
 }
-/////////////////////////////////////////////////功能性函数///////////////////////////////////////////////
+//////////////////////////////////////////////////功能性函数///////////////////////////////////////////////
 function surge(content, url, config_JSON) {
     const 每行内容 = content.includes('\r\n') ? content.split('\r\n') : content.split('\n');
 
@@ -841,7 +768,7 @@ async function 请求日志记录(env, request, 访问IP, 请求类型 = "Get_SU
     const KV容量限制 = 4;//MB
     try {
         const 当前时间 = new Date();
-        const 日志内容 = { TYPE: 请求类型, IP: 访问IP, ASN: `AS${request.cf.asn || '0'} ${request.cf.asOrganization || 'Unknown'}`, CC: `${request.cf.country || 'N/A'} ${request.cf.city || 'N/A'}`, URL: request.url, UA: (request.headers.get('User-Agent') || 'Unknown'), TIME: 当前时间.toISOString(), };
+        const 日志内容 = { TYPE: 请求类型, IP: 访问IP, ASN: `AS${request.cf.asn || '0'} ${request.cf.asOrganization || 'Unknown'}`, CC: `${request.cf.country || 'N/A'} ${request.cf.city || 'N/A'}`, URL: request.url, UA: request.headers.get('User-Agent') || 'Unknown', TIME: 当前时间.getTime() };
         let 日志数组 = [];
         const 现有日志 = await env.KV.get('log.json');
         if (现有日志) {
@@ -850,7 +777,7 @@ async function 请求日志记录(env, request, 访问IP, 请求类型 = "Get_SU
                 if (!Array.isArray(日志数组)) { 日志数组 = [日志内容]; }
                 else if (请求类型 !== "Get_SUB") {
                     const 三十分钟前时间戳 = 当前时间.getTime() - 30 * 60 * 1000;
-                    if (日志数组.some(log => log.TYPE !== "Get_SUB" && log.IP === 访问IP && log.URL === request.url && log.UA === (request.headers.get('User-Agent') || 'Unknown') && log.TIME > new Date(三十分钟前时间戳).toISOString())) return;
+                    if (日志数组.some(log => log.TYPE !== "Get_SUB" && log.IP === 访问IP && log.URL === request.url && log.UA === (request.headers.get('User-Agent') || 'Unknown') && log.TIME >= 三十分钟前时间戳)) return;
                     日志数组.push(日志内容);
                     while (JSON.stringify(日志数组, null, 2).length > KV容量限制 * 1024 * 1024 && 日志数组.length > 0) 日志数组.shift();
                 } else {
@@ -925,7 +852,7 @@ async function MD5MD5(文本) {
 }
 
 function 随机路径() {
-    const 常用路径目录 = ["#","about","account","acg","act","activity","ad","admin","ads","ajax","album","albums","anime","api","app","apps","archive","archives","article","articles","ask","audio","auth","avatar","backup","bbs","best","beta","blog","blogs","board","book","books","bot","bots","cache","calendar","careers","cart","cdn","center","chat","chats","check","client","clients","cloud","code","comment","comments","community","company","config","connect","contact","contest","contribute","corp","create","css","dashboard","data","de","dev","developer","dir","discover","discussion","dist","doc","docs","download","downloads","e","edit","edu","email","en","enterprise","error","explore","faq","favor","favorite","favorites","feature","features","feed","feedback","file","files","find","forum","forums","fr","free","friend","friends","game","games","get","gist","go","group","groups","guest","help","home","hot","howto","html","http","https","i","img","image","images","import","in","index","info","information","invest","invite","io","is","issue","issues","it","jobs","join","jp","js","json","jump","ko","lab","labs","language","last","legal","license","link","links","list","live","load","local","login","log","logo","logout","love","m","mail","main","map","maps","market","me","media","member","members","message","messages","mobile","my","net","new","news","next","night","node","nodes","note","notes","notification","notifications","null","oauth","official","old","online","open","org","organizations","other","page","pages","pay","people","photo","photos","pic","pics","ping","plan","plans","plugins","policy","pop","popular","portal","post","posts","press","pricing","privacy","private","pro","proc","profile","project","projects","proxy","public","publish","qa","question","questions","ranking","read","recommend","register","release","releases","report","repositories","repository","req","research","root","rss","ru","run","safe","save","school","script","sdk","search","secret","secure","security","self","send","service","services","session","setting","settings","setup","share","shop","show","site","sites","smtp","socket","soft","software","source","sql","src","ssh","ssl","star","stars","start","static","status","store","stories","style","sub","subscribe","support","sync","sys","system","tag","tags","team","teams","tech","telnet","test","theme","themes","tmp","tool","tools","topic","topics","tour","translate","trend","trends","trust","tw","uk","union","unit","update","updates","upgrade","upload","uploads","url","user","users","uucp","v","video","videos","view","views","visitor","w","wap","watch","web","webhook","webhooks","welcome","wiki","work","works","www","xml","xmlrpc","xyz","yes","yesterday","zh","z","i","ii","iii","iv","v","vi","vii","viii","ix","x","xi","xii","xiii","xiv","xv","xvi","xvii","xviii","xix","xx","search","login","mil","edu","gov","net","com","org","jp","kr","fr","de","uk","sg","hk","tw","us","contact","partner","zh-CN","zh-TW","zh-HK","zh-SG","zh-Hans","zh-Hant"];
+    const 常用路径目录 = ["#","about","account","acg","act","activity","ad","admin","ads","ajax","album","albums","anime","api","app","apps","archive","archives","article","articles","ask","auth","avatar","bbs","bd","blog","blogs","book","books","bt","buy","cart","category","categories","cb","channel","channels","chat","china","city","class","classify","clip","clips","club","cn","code","collect","collection","comic","comics","community","company","config","contact","content","course","courses","cp","data","detail","details","dh","directory","discount","discuss","dl","dload","doc","docs","document","documents","doujin","download","downloads","drama","edu","en","ep","episode","episodes","event","events","f","faq","favorite","favourites","favs","feedback","file","files","film","films","forum","forums","friend","friends","game","games","gif","go","go.html","go.php","group","groups","help","home","hot","htm","html","image","images","img","index","info","intro","item","items","ja","jp","jump","jump.html","jump.php","jumping","knowledge","lang","lesson","lessons","lib","library","link","links","list","live","lives","login","logout","m","mag","magnet","mall","manhua","map","member","members","message","messages","mobile","movie","movies","music","my","new","news","note","novel","novels","online","order","out","out.html","out.php","outbound","p","page","pages","pay","payment","pdf","photo","photos","pic","pics","picture","pictures","play","player","playlist","post","posts","product","products","program","programs","project","qa","question","rank","ranking","read","readme","redirect","redirect.html","redirect.php","reg","register","res","resource","retrieve","sale","search","season","seasons","section","seller","series","service","services","setting","settings","share","shop","show","shows","site","soft","sort","source","special","star","stars","static","stock","store","stream","streaming","streams","student","study","tag","tags","task","teacher","team","tech","temp","test","thread","tool","tools","topic","topics","torrent","trade","travel","tv","txt","type","u","upload","uploads","url","urls","user","users","v","version","video","videos","view","vip","vod","watch","web","wenku","wiki","work","www","zh","zh-cn","zh-tw","zip"];
     const 随机数 = Math.floor(Math.random() * 3 + 1);
     const 随机路径 = 常用路径目录.sort(() => 0.5 - Math.random()).slice(0, 随机数).join('/');
     return `/${随机路径}`;
@@ -1024,9 +951,9 @@ async function 读取config_JSON(env, hostname, userID, 重置配置 = false) {
 
     config_JSON.HOST = host;
     config_JSON.UUID = userID;
-    config_JSON.PATH = config_JSON.反代.SOCKS5.启用 ? ('/' + config_JSON.反代.SOCKS5.启用 + (config_JSON.反代.SOCKS5.全局 ? '://' : '=') + config_JSON.反代.SOCKS5.账号) : (config_JSON.随机路径 ? 随机路径() : '/');
-    const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('10,10,tlshello')}` : config_JSON.TLS分片 == 'Hysteria2' ? `&fragment=${encodeURIComponent('10-20,20-50,tlshello')}` : '';
-    config_JSON.LINK = `${config_JSON.协议类型}://${userID}@${host}:443?security=tls&type=${config_JSON.传输协议}&host=${host}&sni=${host}&path=${encodeURIComponent(config_JSON.启用0RTT ? (config_JSON.PATH + '?ed=2560') : config_JSON.PATH)}${TLS分片参数}#${encodeURIComponent(host)}`;
+    config_JSON.PATH = config_JSON.反代.SOCKS5.启用 ? ('/' + config_JSON.反代.SOCKS5.启用 + (config_JSON.反代.SOCKS5.全局 ? '://' : '=') + config_JSON.反代.SOCKS5.账号) : (config_JSON.反代.PROXYIP === 'auto' ? '/' : `/proxyip=${config_JSON.反代.PROXYIP}`);
+    const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('3,1,tlshello')}` : '';
+    config_JSON.LINK = `${config_JSON.协议类型}://${userID}@${host}:443?security=tls&type=${config_JSON.传输协议}&host=${host}&sni=${host}&path=${encodeURIComponent(config_JSON.启用0RTT ? config_JSON.PATH + '?ed=2560' : config_JSON.PATH) + TLS分片参数}&encryption=none${config_JSON.跳过证书验证 ? '&allowInsecure=1' : ''}#${encodeURIComponent(config_JSON.优选订阅生成.SUBNAME)}`;
     config_JSON.优选订阅生成.TOKEN = await MD5MD5(hostname + userID);
 
     const 初始化TG_JSON = { BotToken: null, ChatID: null };
@@ -1518,12 +1445,12 @@ async function html1101(host, 访问IP) {
                 <div class="cf-columns two">
                     <div class="cf-column">
                         <h2 data-translate="what_happened">What happened?</h2>
-                            <p>You've requested a page on a website (${host}) that is on the <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x" target="_blank">Cloudflare network</a>. An unknown error occurred which caused the connection to fail.</p>
+                            <p>You've requested a page on a website (${host}) that is on the <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x" target="_blank">Cloudflare</a> network. An unknown error occurred while rendering the page.</p>
                     </div>
                     
                     <div class="cf-column">
                         <h2 data-translate="what_can_i_do">What can I do?</h2>
-                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href="https://developers.cloudflare.com/workers/observability/errors/" target="_blank">Worker Errors</a> for details on how to diagnose and fix the problem.</p>
+                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href="https://developers.cloudflare.com/workers/observability/errors/" target="_blank">Workers - Errors and Exceptions</a> and check Workers Logs for ${host}.</p>
                     </div>
                     
                 </div>
@@ -1540,7 +1467,7 @@ async function html1101(host, 访问IP) {
       <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing" id="brand_link" target="_blank">Cloudflare</a></span>
       
     </p>
-    <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")},!1))}var a=document;document.addEventListener("DOMContentLoaded",d)})();</script>
+    <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
   </div></div></div><script>
     window._cf_translation = {};
     
