@@ -1,14 +1,13 @@
 import { connect } from "cloudflare:sockets";
 
 // [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
-// 注意：不要在这里直接改，去 Cloudflare 后台变量里设置 ACADEMIC_PROXY
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
 
-// [新增] 自定义国旗列表 (已按你的要求添加)
+// [新增] 自定义国旗列表 (你可以自己增减)
 const 国家国旗列表 = [
-    '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG',  '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
+    '🇺🇸 US', '🇭🇰 HK', '🇯🇵 JP', '🇸🇬 SG', '🇹🇼 TW', '🇬🇧 UK', '🇰🇷 KR', '🇩🇪 DE', '🇫🇷 FR'
 ];
 
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////
@@ -31,7 +30,7 @@ export default {
             反代IP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
         } else 反代IP = (request.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt').toLowerCase();
         
-        // [新增] 读取 ACADEMIC_PROXY 变量
+        // 读取 ACADEMIC_PROXY 变量
         if (env.ACADEMIC_PROXY) {
             try {
                 const academicIPs = await 整理成数组(env.ACADEMIC_PROXY);
@@ -254,7 +253,7 @@ export default {
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
                             
-                            // [订阅生成修改] 国旗节点名逻辑
+                            // [重点保留] 你添加的国旗节点生成逻辑
                             订阅内容 = 完整优选IP.map((原始地址, index) => {
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
@@ -489,18 +488,15 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 
-// [核心修改] forwardataTCP 函数：使用局部变量，防止全局污染，解决学术慢问题
+// [核心修改] forwardataTCP 函数：使用局部变量，防止全局污染
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
     // 定义局部变量，初始值取自全局配置
     let useProxyType = 启用SOCKS5反代;
     let useProxyGlobal = 启用SOCKS5全局反代;
     let useProxyAddress = parsedSocks5Address;
 
-    // 0. 判断是否是谷歌学术 (新增独立判断)
-    const isScholar = host.includes('scholar.google.com');
-
     // 1. 谷歌学术自动分流逻辑 (只修改局部变量)
-    if (isScholar && 学术反代IP) {
+    if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
             useProxyType = 'http';
             useProxyGlobal = true; // 学术访问强制走代理
@@ -517,10 +513,10 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         }
     }
 
-    // 2. Cloudflare 强制代理逻辑 (避免回环)
+    // 2. Cloudflare 强制代理逻辑
     const isCloudflare = host.includes('cloudflare.com') || host.includes('cloudflare-dns.com');
 
-    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: useProxyType, 全局代理: useProxyGlobal, 代理账号: 我的SOCKS5账号, IsCloudflare: isCloudflare, IsScholar: isScholar } }));
+    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: useProxyType, 全局代理: useProxyGlobal, 代理账号: 我的SOCKS5账号, IsCloudflare: isCloudflare } }));
     
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
@@ -538,7 +534,6 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         } else if (useProxyType === 'http' || useProxyType === 'https') {
             newSocket = await httpConnect(host, portNum, rawData, useProxyAddress);
         } else {
-            // 如果没有专用代理，这里会使用默认的 PROXYIP (反代IP)
             try {
                 const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
                 newSocket = await connectDirect(反代IP地址, 反代IP端口, rawData);
@@ -552,8 +547,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     // 3. 路由决策：满足以下任意条件则强制走代理
     // A. 开启了全局代理 (或者因为是学术访问被临时开启了)
     // B. 目标域名是 Cloudflare (为了规避直连限制)
-    // C. 目标是谷歌学术 (新增：哪怕没配置专用IP，也强制走默认代理，不再直连)
-    if ((useProxyType && useProxyGlobal) || isCloudflare || isScholar) {
+    if ((useProxyType && useProxyGlobal) || isCloudflare) {
         try {
             await connecttoPry();
         } catch (err) {
