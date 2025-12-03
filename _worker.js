@@ -1,6 +1,7 @@
 import { connect } from "cloudflare:sockets";
 
 // [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
+// 格式示例: socks5://user:pass@1.2.3.4:1080 或 1.2.3.4:1080 (默认socks5)
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
@@ -265,7 +266,6 @@ export default {
                                     节点端口 = match[2] || "443";  
                                     
                                     // [修改] 纯国旗名称，去掉了数字和特殊空格
-                                    // 如果客户端显示重复节点，那是客户端的行为（通常会自动加序号）
                                     const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
                                     节点备注 = 随机国旗; 
 
@@ -497,17 +497,17 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     // 2. 学术分流逻辑：仅针对 scholar.google.com 覆盖配置
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // 解析学术代理配置 (局部变量，不污染全局)
-            if (学术反代IP.toLowerCase().startsWith('socks')) {
-                当前代理类型 = 'socks5';
+            // 智能判断协议：如果以 http 开头则用 http，否则默认为 socks5 (兼容无前缀的 ip:port)
+            if (学术反代IP.toLowerCase().startsWith('http')) {
+                当前代理类型 = 'http';
             } else {
-                当前代理类型 = 'http'; // 默认为 http/https
+                当前代理类型 = 'socks5'; // 默认为 socks5
             }
             
             // 强制启用全局代理模式
             当前全局代理 = true; 
             
-            // 解析账号信息
+            // 解析账号信息 (去除协议前缀后解析)
             const proxyStr = 学术反代IP.replace(/^(socks5?:\/\/|http:\/\/|https:\/\/)/i, '');
             当前代理账号 = await 获取SOCKS5账号(proxyStr);
 
