@@ -489,32 +489,43 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
+    // 1. 初始化当前请求的默认代理配置 (继承自全局/URL参数)
+    let 当前代理类型 = 启用SOCKS5反代;
+    let 当前全局代理 = 启用SOCKS5全局反代;
+    let 当前代理账号 = parsedSocks5Address;
+
+    // 2. 学术分流逻辑：仅针对 scholar.google.com 覆盖配置
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // [新增] SOCKS5 节点解析逻辑
-            // 判断是否以 socks 开头 (不区分大小写)，如果是则启用 socks5 模式，否则默认 http
+            // 解析学术代理配置 (局部变量，不污染全局)
             if (学术反代IP.toLowerCase().startsWith('socks')) {
-                启用SOCKS5反代 = 'socks5';
+                当前代理类型 = 'socks5';
             } else {
-                启用SOCKS5反代 = 'http';
+                当前代理类型 = 'http'; // 默认为 http/https
             }
-            启用SOCKS5全局反代 = true;
             
-            // 移除协议前缀，准备进行解析 (兼容 http://, https://, socks5://, socks:// 或无前缀)
+            // 强制启用全局代理模式
+            当前全局代理 = true; 
+            
+            // 解析账号信息
             const proxyStr = 学术反代IP.replace(/^(socks5?:\/\/|http:\/\/|https:\/\/)/i, '');
-            
-            // 使用脚本自带的解析函数来处理账号密码和端口 (支持 user:pass@host:port)
-            parsedSocks5Address = await 获取SOCKS5账号(proxyStr);
+            当前代理账号 = await 获取SOCKS5账号(proxyStr);
 
-            // console.log(`[学术分流] 选中代理: ${学术反代IP} (解析后: ${JSON.stringify(parsedSocks5Address)})`);
+            // console.log(`[学术分流生效] 目标: ${host} -> 走代理: ${学术反代IP}`);
         } catch (e) {
-            console.log('[学术分流] 代理解析失败:', e);
+            console.log('[学术分流] 代理解析失败，自动回退到默认模式:', e);
+            // 如果解析失败，回退到原始状态，避免断流
+            当前代理类型 = 启用SOCKS5反代;
+            当前全局代理 = 启用SOCKS5全局反代;
+            当前代理账号 = parsedSocks5Address;
         }
+    } else {
+        // 非学术网站，严格维持原样 (即保持初始化的默认配置)
+        // 不需要做任何操作，变量保持原值即可
     }
 
-    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    // console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 当前代理类型, 全局代理: 当前全局代理 } }));
+
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
         const writer = remoteSock.writable.getWriter();
@@ -522,24 +533,29 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         writer.releaseLock();
         return remoteSock;
     }
+
     async function connecttoPry() {
         let newSocket;
-        if (启用SOCKS5反代 === 'socks5') {
-            newSocket = await socks5Connect(host, portNum, rawData);
-        } else if (启用SOCKS5反代 === 'http' || 启用SOCKS5反代 === 'https') {
-            newSocket = await httpConnect(host, portNum, rawData);
+        // 使用局部变量 "当前代理类型" 和 "当前代理账号"
+        if (当前代理类型 === 'socks5') {
+            newSocket = await socks5Connect(host, portNum, rawData, 当前代理账号);
+        } else if (当前代理类型 === 'http' || 当前代理类型 === 'https') {
+            newSocket = await httpConnect(host, portNum, rawData, 当前代理账号);
         } else {
+            // 处理普通反代IP (非 SOCKS5/HTTP 代理)
             try {
                 const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
                 newSocket = await connectDirect(反代IP地址, 反代IP端口, rawData);
-            } catch { newSocket = await connectDirect(atob('UFJPWFlJUC50cDEuMDkwMjI3Lnh5eg=='), 1, rawData) }
+            } catch { 
+                newSocket = await connectDirect(atob('UFJPWFlJUC50cDEuMDkwMjI3Lnh5eg=='), 1, rawData);
+            }
         }
         remoteConnWrapper.socket = newSocket;
         newSocket.closed.catch(() => { }).finally(() => closeSocketQuietly(ws));
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
+    if (当前代理类型 && 当前全局代理) {
         try {
             await connecttoPry();
         } catch (err) {
@@ -675,8 +691,9 @@ function base64ToArray(b64Str) {
     }
 }
 ////////////////////////////////SOCKS5/HTTP函数///////////////////////////////////////////////
-async function socks5Connect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+async function socks5Connect(targetHost, targetPort, initialData, proxyConfig) {
+    // 如果没有传入特定的配置，则使用全局配置 (兼容旧逻辑)
+    const { username, password, hostname, port } = proxyConfig || parsedSocks5Address;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
@@ -711,8 +728,9 @@ async function socks5Connect(targetHost, targetPort, initialData) {
     }
 }
 
-async function httpConnect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+async function httpConnect(targetHost, targetPort, initialData, proxyConfig) {
+    // 如果没有传入特定的配置，则使用全局配置 (兼容旧逻辑)
+    const { username, password, hostname, port } = proxyConfig || parsedSocks5Address;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
