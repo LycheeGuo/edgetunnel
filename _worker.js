@@ -252,6 +252,8 @@ export default {
                         if (!url.searchParams.has('sub') && config_JSON.优选订阅生成.local) { // 本地生成订阅
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
+                            
+                            // [重点保留] 你添加的国旗节点生成逻辑
                             订阅内容 = 完整优选IP.map((原始地址, index) => {
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
@@ -262,7 +264,7 @@ export default {
                                     节点地址 = match[1];  
                                     节点端口 = match[2] || "443";  
                                     
-                                    // [新增] 自定义国旗列表 (你可以自己增减)
+                                    // 随机国旗
                                     const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
                                     节点备注 = 随机国旗; 
 
@@ -486,35 +488,34 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 
-// [核心修改] forwardataTCP 函数：谷歌学术分流 + 强制走代理
+// [核心修改] forwardataTCP 函数：
+// 1. 保留了谷歌学术判断
+// 2. 新增：如果 host 是 cloudflare.com，强制走代理 (isCloudflare 逻辑)
+// 3. 恢复了 else 分支的“尝试直连”逻辑，解决其他网站无法访问的问题
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
     // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            // 强制启用 HTTP 代理模式
             启用SOCKS5反代 = 'http';
             启用SOCKS5全局反代 = true;
-            
-            // 解析代理 IP 和端口
-            // 移除协议前缀，兼容 http://ip:port 和 ip:port 格式
             const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
             const parts = proxyStr.split(':');
-            
-            // 覆盖全局代理配置
             parsedSocks5Address = {
                 hostname: parts[0],
                 port: parseInt(parts[1]) || 80,
                 username: '', 
                 password: ''
             };
-            // console.log(`[学术分流] 选中代理: ${学术反代IP}`);
         } catch (e) {
             console.log('[学术分流] 代理解析失败:', e);
         }
     }
 
+    // [新增] 判断是否是 Cloudflare 域名，如果是，强制使用 ProxyIP (不走直连)
+    const isCloudflare = host.includes('cloudflare.com') || host.includes('cloudflare-dns.com');
+
     console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
         const writer = remoteSock.writable.getWriter();
@@ -539,12 +540,22 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    // [修改点] 强制所有流量走代理（学术或默认ProxyIP），不再尝试直连
-    try {
-        await connecttoPry();
-    } catch (err) {
-        // console.error('代理连接失败:', err);
-        throw err;
+    // [逻辑修改] 如果开启了全局代理，或者目标是 Cloudflare，则强制走代理
+    if ((启用SOCKS5反代 && 启用SOCKS5全局反代) || isCloudflare) {
+        try {
+            await connecttoPry();
+        } catch (err) {
+            throw err;
+        }
+    } else {
+        // [恢复] 默认情况：先尝试直连，失败后再走代理
+        try {
+            const initialSocket = await connectDirect(host, portNum, rawData);
+            remoteConnWrapper.socket = initialSocket;
+            connectStreams(initialSocket, ws, respHeader, connecttoPry);
+        } catch (err) {
+            await connecttoPry();
+        }
     }
 }
 
