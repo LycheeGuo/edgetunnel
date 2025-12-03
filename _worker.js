@@ -252,8 +252,6 @@ export default {
                         if (!url.searchParams.has('sub') && config_JSON.优选订阅生成.local) { // 本地生成订阅
                             const 优选API的IP = await 请求优选API(优选API);
                             const 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
-                            
-                            // [重点修改] 节点生成逻辑
                             订阅内容 = 完整优选IP.map((原始地址, index) => {
                                 const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
                                 const match = 原始地址.match(regex);
@@ -264,8 +262,7 @@ export default {
                                     节点地址 = match[1];  
                                     节点端口 = match[2] || "443";  
                                     
-                                    // [修改] 纯国旗名称，去掉了数字和特殊空格
-                                    // 如果客户端显示重复节点，那是客户端的行为（通常会自动加序号）
+                                    // [新增] 自定义国旗列表 (你可以自己增减)
                                     const 随机国旗 = 国家国旗列表[Math.floor(Math.random() * 国家国旗列表.length)];
                                     节点备注 = 随机国旗; 
 
@@ -488,6 +485,8 @@ function 解析魏烈思请求(chunk, token) {
     if (!hostname) return { hasError: true, message: `Invalid address: ${addressType}` };
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
+
+// [核心修改] forwardataTCP 函数：谷歌学术分流 + 强制走代理
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
     // 谷歌学术自动分流逻辑
     // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
@@ -540,20 +539,12 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    if (启用SOCKS5反代 && 启用SOCKS5全局反代) {
-        try {
-            await connecttoPry();
-        } catch (err) {
-            throw err;
-        }
-    } else {
-        try {
-            const initialSocket = await connectDirect(host, portNum, rawData);
-            remoteConnWrapper.socket = initialSocket;
-            connectStreams(initialSocket, ws, respHeader, connecttoPry);
-        } catch (err) {
-            await connecttoPry();
-        }
+    // [修改点] 强制所有流量走代理（学术或默认ProxyIP），不再尝试直连
+    try {
+        await connecttoPry();
+    } catch (err) {
+        // console.error('代理连接失败:', err);
+        throw err;
     }
 }
 
