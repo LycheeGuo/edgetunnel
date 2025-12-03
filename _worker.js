@@ -2,7 +2,10 @@ import { connect } from "cloudflare:sockets";
 
 // [配置] 默认学术代理 IP (会被后台变量 ACADEMIC_PROXY 覆盖)
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {}, 学术反代IP = '';
-let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
+
+// [修改] 只保留 scholar.google.com，其他全部删除
+let SOCKS5白名单 = ['scholar.google.com'];
+
 const Pages静态页面 = 'https://edt-pages.github.io';
 
 // [新增] 自定义国旗列表 (你可以自己增减)
@@ -490,7 +493,7 @@ function 解析魏烈思请求(chunk, token) {
 }
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
     // 谷歌学术自动分流逻辑
-    // 如果有学术反代IP，并且访问的是学术网站，则强制使用代理
+    // 如果有学术反代IP，并且访问的是学术网站(仅限 scholar.google.com)，则强制使用代理
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
             // [新增逻辑] 自动判断协议并解析账号密码
@@ -833,7 +836,7 @@ function 掩码敏感信息(文本, 前缀长度 = 3, 后缀长度 = 2) {
     if (文本.length <= 前缀长度 + 后缀长度) return 文本; // 如果长度太短，直接返回
 
     const 前缀 = 文本.slice(0, 前缀长度);
-    const 后缀 =文本.slice(-后缀长度);
+    const 后缀 = 文本.slice(-后缀长度);
     const 星号数量 = 文本.length - 前缀长度 - 后缀长度;
 
     return `${前缀}${'*'.repeat(星号数量)}${后缀}`;
@@ -865,7 +868,8 @@ function 随机替换通配符(h) {
     const 字符集 = 'abcdefghijklmnopqrstuvwxyz0123456789';
     return h.replace(/\*/g, () => {
         let s = '';
-        for (let i = 0; i < Math.floor(Math.random() * 14) + 3; i++)
+        let i = 0;
+        for (i = 0; i < Math.floor(Math.random() * 14) + 3; i++)
             s += 字符集[Math.floor(Math.random() * 36)];
         return s;
     });
