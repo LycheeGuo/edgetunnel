@@ -488,19 +488,21 @@ function 解析魏烈思请求(chunk, token) {
     return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 
-// [核心修改] forwardataTCP 函数：
-// 1. 保留了谷歌学术判断
-// 2. 新增：如果 host 是 cloudflare.com，强制走代理 (isCloudflare 逻辑)
-// 3. 恢复了 else 分支的“尝试直连”逻辑，解决其他网站无法访问的问题
+// [核心修改] forwardataTCP 函数：使用局部变量，防止全局污染
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper) {
-    // 谷歌学术自动分流逻辑
+    // 定义局部变量，初始值取自全局配置
+    let useProxyType = 启用SOCKS5反代;
+    let useProxyGlobal = 启用SOCKS5全局反代;
+    let useProxyAddress = parsedSocks5Address;
+
+    // 1. 谷歌学术自动分流逻辑 (只修改局部变量)
     if (host.includes('scholar.google.com') && 学术反代IP) {
         try {
-            启用SOCKS5反代 = 'http';
-            启用SOCKS5全局反代 = true;
+            useProxyType = 'http';
+            useProxyGlobal = true; // 学术访问强制走代理
             const proxyStr = 学术反代IP.replace(/https?:\/\//, '');
             const parts = proxyStr.split(':');
-            parsedSocks5Address = {
+            useProxyAddress = {
                 hostname: parts[0],
                 port: parseInt(parts[1]) || 80,
                 username: '', 
@@ -511,10 +513,10 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         }
     }
 
-    // [新增] 判断是否是 Cloudflare 域名，如果是，强制使用 ProxyIP (不走直连)
+    // 2. Cloudflare 强制代理逻辑
     const isCloudflare = host.includes('cloudflare.com') || host.includes('cloudflare-dns.com');
 
-    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: 启用SOCKS5反代, 全局代理: 启用SOCKS5全局反代, 代理账号: 我的SOCKS5账号 } }));
+    console.log(JSON.stringify({ configJSON: { 目标地址: host, 目标端口: portNum, 反代IP: 反代IP, 代理类型: useProxyType, 全局代理: useProxyGlobal, 代理账号: 我的SOCKS5账号, IsCloudflare: isCloudflare } }));
     
     async function connectDirect(address, port, data) {
         const remoteSock = connect({ hostname: address, port: port });
@@ -523,12 +525,14 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         writer.releaseLock();
         return remoteSock;
     }
+
     async function connecttoPry() {
         let newSocket;
-        if (启用SOCKS5反代 === 'socks5') {
-            newSocket = await socks5Connect(host, portNum, rawData);
-        } else if (启用SOCKS5反代 === 'http' || 启用SOCKS5反代 === 'https') {
-            newSocket = await httpConnect(host, portNum, rawData);
+        // 使用局部变量进行判断和连接
+        if (useProxyType === 'socks5') {
+            newSocket = await socks5Connect(host, portNum, rawData, useProxyAddress);
+        } else if (useProxyType === 'http' || useProxyType === 'https') {
+            newSocket = await httpConnect(host, portNum, rawData, useProxyAddress);
         } else {
             try {
                 const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
@@ -540,15 +544,17 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, null);
     }
 
-    // [逻辑修改] 如果开启了全局代理，或者目标是 Cloudflare，则强制走代理
-    if ((启用SOCKS5反代 && 启用SOCKS5全局反代) || isCloudflare) {
+    // 3. 路由决策：满足以下任意条件则强制走代理
+    // A. 开启了全局代理 (或者因为是学术访问被临时开启了)
+    // B. 目标域名是 Cloudflare (为了规避直连限制)
+    if ((useProxyType && useProxyGlobal) || isCloudflare) {
         try {
             await connecttoPry();
         } catch (err) {
             throw err;
         }
     } else {
-        // [恢复] 默认情况：先尝试直连，失败后再走代理
+        // 其他普通网站：依然保持“优先直连，失败再走代理”的策略
         try {
             const initialSocket = await connectDirect(host, portNum, rawData);
             remoteConnWrapper.socket = initialSocket;
@@ -678,8 +684,9 @@ function base64ToArray(b64Str) {
     }
 }
 ////////////////////////////////SOCKS5/HTTP函数///////////////////////////////////////////////
-async function socks5Connect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+// [修改] 增加 customConfig 参数支持局部配置
+async function socks5Connect(targetHost, targetPort, initialData, customConfig) {
+    const { username, password, hostname, port } = customConfig || parsedSocks5Address;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
@@ -714,8 +721,9 @@ async function socks5Connect(targetHost, targetPort, initialData) {
     }
 }
 
-async function httpConnect(targetHost, targetPort, initialData) {
-    const { username, password, hostname, port } = parsedSocks5Address;
+// [修改] 增加 customConfig 参数支持局部配置
+async function httpConnect(targetHost, targetPort, initialData, customConfig) {
+    const { username, password, hostname, port } = customConfig || parsedSocks5Address;
     const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
     try {
         const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
